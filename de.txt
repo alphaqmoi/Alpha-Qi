@@ -1,0 +1,14 @@
+#include <secp256k1.h>
+#include <stdio.h>
+
+int main() {
+    secp256k1_context *ctx;
+    ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    if (ctx != NULL) {
+        printf("secp256k1 context created successfully!\n");
+        secp256k1_context_destroy(ctx);
+    } else {
+        printf("Failed to create secp256k1 context.\n");
+    }
+    return 0;
+}

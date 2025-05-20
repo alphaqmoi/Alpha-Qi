@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - MODEL_NAME=${MODEL_NAME:-gpt2}
+      - MAX_LENGTH=${MAX_LENGTH:-100}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+    volumes:
+      - ./conversation_history:/app/conversation_history
+      - ./uploads:/app/uploads
+      - ./checkpoints:/app/checkpoints
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000
+    depends_on:
+      - backend
+    restart: unless-stopped 

@@ -1,0 +1,579 @@
+{% extends "layout.html" %}
+
+{% block title %}Chat | {{ app_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chat-container {
+        height: calc(100vh - 240px);
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .chat-messages {
+        flex-grow: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        background-color: rgba(33, 37, 41, 0.3);
+        border-radius: 0.5rem;
+    }
+    
+    .message {
+        display: flex;
+        margin-bottom: 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        max-width: 85%;
+    }
+    
+    .user-message {
+        background-color: var(--bs-primary);
+        color: white;
+        margin-left: auto;
+    }
+    
+    .assistant-message {
+        background-color: var(--bs-dark);
+        color: white;
+        margin-right: auto;
+    }
+    
+    .message-avatar {
+        width: 40px;
+        height: 40px;
+        margin-right: 12px;
+        flex-shrink: 0;
+    }
+    
+    .message-avatar img {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background-color: rgba(255, 255, 255, 0.1);
+        padding: 2px;
+    }
+    
+    .message-content {
+        flex: 1;
+    }
+    
+    .message-reasoning {
+        margin-top: 8px;
+    }
+    
+    .typing-indicator .message-text {
+        display: flex;
+        align-items: center;
+    }
+    
+    .typing-indicator .dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #fff;
+        margin-right: 4px;
+        animation: typing-animation 1.4s infinite both;
+    }
+    
+    .typing-indicator .dot:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+    
+    .typing-indicator .dot:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+    
+    @keyframes typing-animation {
+        0% { opacity: 0.3; transform: translateY(0); }
+        50% { opacity: 1; transform: translateY(-5px); }
+        100% { opacity: 0.3; transform: translateY(0); }
+    }
+    
+    .message-time {
+        font-size: 0.75rem;
+        opacity: 0.7;
+        margin-top: 0.25rem;
+    }
+    
+    .chat-input {
+        padding: 1rem 0;
+    }
+    
+    .status-panel {
+        background-color: rgba(33, 37, 41, 0.6);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    
+    .status-panel h5 {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    .status-indicator {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 0.5rem;
+    }
+    
+    .status-online {
+        background-color: var(--bs-success);
+    }
+    
+    .status-offline {
+        background-color: var(--bs-danger);
+    }
+    
+    .status-loading {
+        background-color: var(--bs-warning);
+        animation: pulse 1.5s infinite;
+    }
+    
+    .code-block {
+        background-color: rgba(0, 0, 0, 0.5);
+        border-radius: 0.25rem;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+        font-family: monospace;
+        white-space: pre-wrap;
+        overflow-x: auto;
+    }
+    
+    .thinking-dots {
+        display: inline-block;
+    }
+    
+    .thinking-dots span {
+        animation: thinking 1.4s infinite;
+        display: inline-block;
+        opacity: 0;
+    }
+    
+    .thinking-dots span:nth-child(1) {
+        animation-delay: 0s;
+    }
+    
+    .thinking-dots span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+    
+    .thinking-dots span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+    
+    @keyframes thinking {
+        0% { opacity: 0; }
+        50% { opacity: 1; }
+        100% { opacity: 0; }
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+    
+    /* V0-style UI elements */
+    .v0-sidebar {
+        background-color: rgba(20, 24, 28, 0.6);
+        border-radius: 0.5rem;
+        height: calc(100vh - 240px);
+        min-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .v0-sidebar-item {
+        padding: 0.75rem 1rem;
+        border-radius: 0.25rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    
+    .v0-sidebar-item:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .v0-sidebar-item.active {
+        background-color: rgba(var(--bs-primary-rgb), 0.2);
+        border-left: 3px solid var(--bs-primary);
+    }
+    
+    .deployment-options {
+        margin-top: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Sidebar for navigation and deployment options -->
+    <div class="col-lg-3">
+        <div class="v0-sidebar p-3">
+            <h5 class="mb-3">
+                <i class="fas fa-robot me-2"></i>
+                Alpha-Q
+            </h5>
+            
+            <div class="mb-4">
+                <h6 class="text-muted mb-2">Navigation</h6>
+                <div class="v0-sidebar-item active">
+                    <i class="fas fa-comment-alt me-2"></i>
+                    Chat
+                </div>
+                <div class="v0-sidebar-item" onclick="window.location.href='{{ url_for('index') }}'">
+                    <i class="fas fa-th-large me-2"></i>
+                    Dashboard
+                </div>
+                <div class="v0-sidebar-item" onclick="alert('Projects feature coming soon!')">
+                    <i class="fas fa-folder me-2"></i>
+                    Projects
+                </div>
+                <div class="v0-sidebar-item" onclick="alert('Settings feature coming soon!')">
+                    <i class="fas fa-cog me-2"></i>
+                    Settings
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <h6 class="text-muted mb-2">Deployment</h6>
+                <div class="deployment-options">
+                    <button class="btn btn-outline-primary mb-2 w-100" onclick="alert('Vercel deployment feature coming soon!')">
+                        <i class="fas fa-cloud-upload-alt me-2"></i>
+                        Deploy to Vercel
+                    </button>
+                    <button class="btn btn-outline-secondary mb-2 w-100" onclick="alert('Railway deployment feature coming soon!')">
+                        <i class="fas fa-train me-2"></i>
+                        Deploy to Railway
+                    </button>
+                    <button class="btn btn-outline-secondary w-100" onclick="alert('GitHub Pages deployment feature coming soon!')">
+                        <i class="fab fa-github me-2"></i>
+                        Deploy to GitHub Pages
+                    </button>
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <h6 class="text-muted mb-2">Database Status</h6>
+                <div class="status-panel">
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="status-indicator {% if db_connected %}status-online{% else %}status-offline{% endif %}"></span>
+                        <span>Supabase: {% if db_connected %}Connected{% else %}Disconnected{% endif %}</span>
+                    </div>
+                    <small class="text-muted d-block">{{ supabase_url }}</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main chat area -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body p-0">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        <!-- Initial welcome message -->
+                        <div class="message assistant-message">
+                            <div class="message-avatar">
+                                <img src="{{ url_for('static', filename='images/assistant.svg') }}" alt="assistant avatar">
+                            </div>
+                            <div class="message-content">
+                                <div class="message-text">👋 Hi there! I'm Alpha-Q, your AI assistant for building applications. How can I help you today?</div>
+                                <div class="message-time">{{ current_time }}</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Messages will be added here dynamically -->
+                    </div>
+                    
+                    <div class="chat-input px-3">
+                        <form id="chat-form" action="{{ url_for('chat_message') }}" method="post">
+                            <div class="input-group">
+                                <button type="button" id="voice-input-btn" class="btn btn-outline-secondary" title="Voice Input">
+                                    <i class="fas fa-microphone"></i>
+                                </button>
+                                <input type="text" class="form-control" id="message" name="message" 
+                                       placeholder="Type your message..." required>
+                                <button type="button" id="voice-output-toggle" class="btn btn-outline-secondary" title="Toggle Voice Output">
+                                    <i class="fas fa-volume-up"></i>
+                                </button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </form>
+                        <div class="text-center mt-2" id="voice-status" style="display: none;">
+                            <small class="text-muted">Listening... <span class="spinner-border spinner-border-sm"></span></small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Status and reasoning panel -->
+    <div class="col-lg-3">
+        <div class="status-panel mb-4">
+            <h5>
+                <i class="fas fa-info-circle me-2"></i>
+                AI Status
+            </h5>
+            <div class="mb-3">
+                <div class="d-flex align-items-center mb-2">
+                    <span class="status-indicator status-online"></span>
+                    <span>Model: Deepseek-Coder-33B</span>
+                </div>
+                <div class="d-flex align-items-center mb-2">
+                    <span class="status-indicator status-online"></span>
+                    <span>HuggingFace: Connected</span>
+                </div>
+                <div class="d-flex align-items-center">
+                    <span class="status-indicator status-online"></span>
+                    <span>Memory: Supabase Vector Store</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="status-panel">
+            <h5>
+                <i class="fas fa-brain me-2"></i>
+                Reasoning
+            </h5>
+            <div id="reasoning-panel">
+                <p class="text-muted">I'll display my reasoning process here as I respond to your messages.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Pass existing messages to JavaScript
+    var existingMessages = {{ messages|tojson|safe if messages else '[]' }};
+</script>
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+<script>
+    // Voice synthesis
+    class VoiceSynthesis {
+        constructor() {
+            // Check if speech synthesis is supported
+            this.isSupported = 'speechSynthesis' in window;
+            
+            if (this.isSupported) {
+                this.synth = window.speechSynthesis;
+                this.voices = [];
+                this.isPlaying = false;
+                this.queue = [];
+                this.currentVoice = 'neutral';
+                
+                // Load voices when available
+                if (window.speechSynthesis.onvoiceschanged !== undefined) {
+                    window.speechSynthesis.onvoiceschanged = this.loadVoices.bind(this);
+                }
+                
+                this.loadVoices();
+            } else {
+                console.log("Speech synthesis not supported in this browser");
+            }
+        }
+        
+        loadVoices() {
+            if (!this.isSupported) return;
+            
+            this.voices = this.synth.getVoices();
+            console.log(`Loaded ${this.voices.length} voices`);
+        }
+        
+        speak(text, voiceSettings) {
+            if (!this.isSupported || !text) return;
+            
+            // Cancel any current speech
+            this.cancel();
+            
+            try {
+                const utterance = new SpeechSynthesisUtterance(text);
+                
+                // Apply settings if provided
+                if (voiceSettings) {
+                    utterance.pitch = voiceSettings.pitch || 1;
+                    utterance.rate = voiceSettings.rate || 1;
+                    
+                    // Try to find matching voice
+                    if (this.voices.length > 0) {
+                        // Find a voice that matches the desired gender/style
+                        if (voiceSettings.gender === 'male') {
+                            const maleVoice = this.voices.find(v => v.name.includes('Male') || v.name.includes('David') || v.name.includes('James'));
+                            if (maleVoice) utterance.voice = maleVoice;
+                        } else if (voiceSettings.gender === 'female') {
+                            const femaleVoice = this.voices.find(v => v.name.includes('Female') || v.name.includes('Lisa') || v.name.includes('Sarah'));
+                            if (femaleVoice) utterance.voice = femaleVoice;
+                        }
+                    }
+                }
+                
+                // Add to queue
+                this.queue.push(utterance);
+                
+                // Start speaking if not already playing
+                if (!this.isPlaying) {
+                    this.playNext();
+                }
+            } catch (e) {
+                console.error('Error creating speech synthesis utterance:', e);
+            }
+        }
+        
+        playNext() {
+            if (!this.isSupported || this.queue.length === 0) {
+                this.isPlaying = false;
+                return;
+            }
+            
+            try {
+                this.isPlaying = true;
+                const utterance = this.queue.shift();
+                
+                utterance.onend = () => {
+                    this.playNext();
+                };
+                
+                utterance.onerror = (e) => {
+                    console.error('Speech synthesis error:', e);
+                    this.playNext();
+                };
+                
+                this.synth.speak(utterance);
+            } catch (e) {
+                console.error('Error in speech playback:', e);
+                this.isPlaying = false;
+            }
+        }
+        
+        cancel() {
+            if (!this.isSupported) return;
+            
+            try {
+                this.synth.cancel();
+                this.queue = [];
+                this.isPlaying = false;
+            } catch (e) {
+                console.error('Error canceling speech synthesis:', e);
+            }
+        }
+    }
+    
+    // Initialize voice synthesis
+    const voiceSynth = new VoiceSynthesis();
+    document.addEventListener('DOMContentLoaded', function() {
+        const chatForm = document.getElementById('chat-form');
+        const chatMessages = document.getElementById('chat-messages');
+        const messageInput = document.getElementById('message');
+        const reasoningPanel = document.getElementById('reasoning-panel');
+        
+        // Function to add a message to the chat
+        function addMessage(message, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + (isUser ? 'message-user' : 'message-ai');
+            
+            const messageContent = document.createElement('div');
+            messageContent.textContent = message;
+            
+            const messageTime = document.createElement('div');
+            messageTime.className = 'message-time';
+            
+            const now = new Date();
+            const timeString = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            messageTime.textContent = timeString;
+            
+            messageDiv.appendChild(messageContent);
+            messageDiv.appendChild(messageTime);
+            
+            chatMessages.appendChild(messageDiv);
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Function to add AI thinking indicator
+        function addThinkingIndicator() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-ai';
+            messageDiv.id = 'thinking-indicator';
+            
+            const messageContent = document.createElement('div');
+            messageContent.innerHTML = 'Thinking<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>';
+            
+            messageDiv.appendChild(messageContent);
+            chatMessages.appendChild(messageDiv);
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Function to remove the thinking indicator
+        function removeThinkingIndicator() {
+            const indicator = document.getElementById('thinking-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+        
+        // Function to update the reasoning panel
+        function updateReasoning(reasoning) {
+            reasoningPanel.innerHTML = reasoning;
+        }
+        
+        // Handle form submission
+        chatForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const message = messageInput.value.trim();
+            if (!message) return;
+            
+            // Add user message to chat
+            addMessage(message, true);
+            
+            // Clear input
+            messageInput.value = '';
+            
+            // Add thinking indicator
+            addThinkingIndicator();
+            
+            // Update reasoning panel
+            updateReasoning('<p>Processing your query: "' + message + '"</p><p>Analyzing intent and context...</p>');
+            
+            // Simulate AI response (in real implementation, this would be an API call)
+            setTimeout(function() {
+                removeThinkingIndicator();
+                
+                // Handle different message types
+                if (message.toLowerCase().includes('hello') || message.toLowerCase().includes('hi')) {
+                    addMessage('Hello! How can I help you with your application development needs today?');
+                    updateReasoning('<p>User greeted me, so I responded with a friendly greeting and offered assistance.</p><p>Context: User is looking for help with application development.</p>');
+                } 
+                else if (message.toLowerCase().includes('create') || message.toLowerCase().includes('build') || message.toLowerCase().includes('app')) {
+                    addMessage('I\'d be happy to help you create an application! What type of app would you like to build? You can choose from web, mobile, or API/backend applications.');
+                    updateReasoning('<p>User expressed interest in creating an application.</p><p>Step 1: Offer application type options</p><p>Step 2: Wait for user to specify type</p><p>Step 3: Suggest appropriate technologies based on the chosen type</p>');
+                }
+                else if (message.toLowerCase().includes('database') || message.toLowerCase().includes('supabase')) {
+                    addMessage('You\'re already connected to Supabase! Your database is at https://xxwrambzzwfmxqytoroh.supabase.co. Would you like me to help you set up tables or queries?');
+                    updateReasoning('<p>User asked about database functionality.</p><p>Current state: Supabase is configured and connected.</p><p>Next steps: Offer to help with schema design or query construction</p>');
+                }
+                else if (message.toLowerCase().includes('deploy') || message.toLowerCase().includes('vercel')) {
+                    addMessage('To deploy your application to Vercel, you can use the "Deploy to Vercel" button in the sidebar. Make sure you\'ve pushed your code to a Git repository first. Would you like me to help you prepare for deployment?');
+                    updateReasoning('<p>User wants to deploy their application.</p><p>Recommended service: Vercel</p><p>Prerequisites: Git repository</p><p>Next steps: Guide user through Vercel deployment process</p>');
+                }
+                else {
+                    addMessage('I\'m here to help you build amazing applications! You can ask me about creating new projects, working with databases, deploying to various platforms, or writing code in almost any programming language. What would you like to work on today?');
+                    updateReasoning('<p>User query was general or unclear.</p><p>Strategy: Provide a helpful overview of capabilities</p><p>Goal: Guide user toward more specific requests that I can assist with</p>');
+                }
+            }, 1500);
+        });
+    });
+</script>
+{% endblock %}

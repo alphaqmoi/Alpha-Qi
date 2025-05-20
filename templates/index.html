@@ -1,0 +1,339 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ app_name }} - {{ app_description }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h1 class="card-title text-center mb-4">
+                    <i class="fas fa-robot me-2"></i>
+                    {{ app_name }}
+                </h1>
+                
+                <p class="lead text-center mb-4">
+                    An advanced AI application builder with capabilities similar to Cursor and V0 - build both frontend and backend for all programming languages and devices.
+                </p>
+                
+                <!-- Database Status -->
+                <div class="alert alert-info mb-4">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5 class="mb-2">
+                                <i class="fas fa-database me-2"></i> 
+                                Database Status: 
+                                <span class="{% if db_connected %}text-success{% else %}text-danger{% endif %}">
+                                    {% if db_connected %}Connected{% else %}Not Connected{% endif %}
+                                </span>
+                            </h5>
+                            <p class="mb-0">Using Supabase database at: <code>{{ supabase_url }}</code></p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5 class="mb-2">
+                                <i class="fas fa-brain me-2"></i> 
+                                AI Status: 
+                                <span class="text-success">
+                                    Connected to HuggingFace
+                                </span>
+                            </h5>
+                            <p class="mb-0">Using model: <code>Deepseek-Coder-33B-Instruct</code></p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Chat and Deployment Quick Links -->
+                <div class="alert alert-secondary mb-4">
+                    <div class="row">
+                        <div class="col-md-6 mb-2 mb-md-0">
+                            <a href="{{ url_for('chat') }}" class="btn btn-primary w-100">
+                                <i class="fas fa-comment-alt me-2"></i> Open Chat Interface
+                            </a>
+                        </div>
+                        <div class="col-md-6">
+                            <button class="btn btn-outline-primary w-100" onclick="alert('Deployment feature coming soon!')">
+                                <i class="fas fa-cloud-upload-alt me-2"></i> Deploy Application
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Authentication Status -->
+                <div class="auth-status rounded {% if is_authenticated %}bg-success-subtle{% else %}bg-warning-subtle{% endif %}">
+                    <h5 class="mb-3">
+                        <i class="fas {% if is_authenticated %}fa-check-circle text-success{% else %}fa-exclamation-circle text-warning{% endif %} me-2"></i>
+                        Authentication Status: 
+                        <span class="{% if is_authenticated %}text-success{% else %}text-warning{% endif %}">
+                            {% if is_authenticated %}Authenticated{% else %}Not Authenticated{% endif %}
+                        </span>
+                    </h5>
+                    
+                    {% if not is_authenticated %}
+                    <form id="auth_form" action="{{ url_for('authenticate') }}" method="post">
+                        <div class="mb-3">
+                            <label for="token" class="form-label">API Token</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="token" name="token" 
+                                       pla
+                                    <i class="fas fa-key me-1"></i> Authenticate
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                Using token for authentication and model access
+                            </div>
+                        </div>
+                    </form>
+                    {% endif %}
+                </div>
+                
+                <hr>
+                
+                <!-- App Creation Form -->
+                {% if is_authenticated %}
+                <div class="mt-4">
+                    <form id="create_app_form" action="{{ url_for('create_app') }}" method="post">
+                        <div class="step-container">
+                            <div class="step-number">1</div>
+                            <div class="mb-3">
+                                <label for="app_name" class="form-label">Application Name</label>
+                                <input type="text" class="form-control" id="app_name" name="app_name" 
+                                       placeholder="my-awesome-app" required>
+                                <div class="form-text">
+                                    <i class="fas fa-info-circle me-1"></i> 
+                                    Choose a name for your new application
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="step-container">
+                            <div class="step-number">2</div>
+                            <div class="mb-3">
+                                <label for="app_description" class="form-label">Description</label>
+                                <textarea class="form-control" id="app_description" name="app_description" 
+                                          rows="3" placeholder="Describe what your application will do" required></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="step-container">
+                            <div class="step-number">3</div>
+                            <div class="mb-3">
+                                <label class="form-label">Application Type</label>
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="radio" name="app_type" id="type_web" value="web" checked>
+                                                    <label class="form-check-label" for="type_web">
+                                                        <h5><i class="fas fa-globe me-2"></i> Web Application</h5>
+                                                    </label>
+                                                </div>
+                                                <p class="form-text mt-2">Full-stack web app with frontend and backend</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="radio" name="app_type" id="type_api" value="api">
+                                                    <label class="form-check-label" for="type_api">
+                                                        <h5><i class="fas fa-server me-2"></i> API / Backend</h5>
+                                                    </label>
+                                                </div>
+                                                <p class="form-text mt-2">Backend-only service with RESTful API endpoints</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card h-100">
+                                            <div class="card-body">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="radio" name="app_type" id="type_mobile" value="mobile">
+                                                    <label class="form-check-label" for="type_mobile">
+                                                        <h5><i class="fas fa-mobile-alt me-2"></i> Mobile App</h5>
+                                                    </label>
+                                                </div>
+                                                <p class="form-text mt-2">Mobile application for iOS and/or Android</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="step-container">
+                            <div class="step-number">4</div>
+                            <div class="mb-3">
+                                <label class="form-label">Framework</label>
+                                <select class="form-select" id="framework" name="framework">
+                                    <optgroup label="Web Frameworks">
+                                        <option value="react">React</option>
+                                        <option value="nextjs">Next.js</option>
+                                        <option value="vue">Vue.js</option>
+                                        <option value="angular">Angular</option>
+                                    </optgroup>
+                                    <optgroup label="Backend Frameworks">
+                                        <option value="express">Express (Node.js)</option>
+                                        <option value="flask">Flask (Python)</option>
+                                        <option value="django">Django (Python)</option>
+                                        <option value="fastapi">FastAPI (Python)</option>
+                                    </optgroup>
+                                    <optgroup label="Mobile Frameworks">
+                                        <option value="react-native">React Native</option>
+                                        <option value="flutter">Flutter</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-magic me-2"></i> Create Application
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                {% else %}
+                <div class="alert alert-info mt-4" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Please authenticate with your API token to start building applications.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <h4 class="card-title">
+                            <i class="fas fa-cogs me-2"></i>
+                            Features
+                        </h4>
+                        <ul class="mt-3">
+                            <li class="mb-2">
+                                <strong>Natural Language & Voice AI</strong> - Local text and voice processing
+                            </li>
+                            <li class="mb-2">
+                                <strong>Full-Stack Code Creation</strong> - Generate code for any language or platform
+                            </li>
+                            <li class="mb-2">
+                                <strong>System Control & CLI Execution</strong> - Automate system tasks
+                            </li>
+                            <li class="mb-2">
+                                <strong>Web Preview/Build/Deploy</strong> - Test and deploy with ease
+                            </li>
+                            <li class="mb-2">
+                                <strong>GitHub Integration</strong> - Automated repository management
+                            </li>
+                            <li class="mb-2">
+                                <strong>Browser Automation</strong> - Control browsers with Puppeteer/Playwright
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <h4 class="card-title">
+                            <i class="fas fa-laptop-code me-2"></i>
+                            Tech Stack
+                        </h4>
+                        <ul class="mt-3">
+                            <li class="mb-2">
+                                <strong>Frontend:</strong> Next.js, Tailwind CSS, Monaco Editor
+                            </li>
+                            <li class="mb-2">
+                                <strong>Backend:</strong> Python (FastAPI), Node.js, Rust (performance)
+                            </li>
+                            <li class="mb-2">
+                                <strong>AI Models:</strong> Deepseek-Coder-33B, CodeLlama-Instruct
+                            </li>
+                            <li class="mb-2">
+                                <strong>Voice AI:</strong> Whisper (STT), Coqui (TTS)
+                            </li>
+                            <li class="mb-2">
+                                <strong>Storage:</strong> Supabase, Chroma (vector memory)
+                            </li>
+                            <li class="mb-2">
+                                <strong>Deployment:</strong> Vercel, Railway, GitHub Actions
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Additional JavaScript for the app creation page
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle app type selection to filter available frameworks
+        const appTypeRadios = document.querySelectorAll('input[name="app_type"]');
+        const frameworkSelect = document.getElementById('framework');
+        
+        if (appTypeRadios && frameworkSelect) {
+            appTypeRadios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const appType = this.value;
+                    
+                    // Reset select
+                    frameworkSelect.innerHTML = '';
+                    
+                    // Add appropriate options based on app type
+                    if (appType === 'web') {
+                        addFrameworkGroup('Web Frameworks', {
+                            'react': 'React',
+                            'nextjs': 'Next.js',
+                            'vue': 'Vue.js',
+                            'angular': 'Angular'
+                        });
+                        addFrameworkGroup('Backend Frameworks', {
+                            'express': 'Express (Node.js)',
+                            'flask': 'Flask (Python)',
+                            'django': 'Django (Python)',
+                            'fastapi': 'FastAPI (Python)'
+                        });
+                    } else if (appType === 'api') {
+                        addFrameworkGroup('Backend Frameworks', {
+                            'express': 'Express (Node.js)',
+                            'flask': 'Flask (Python)',
+                            'django': 'Django (Python)',
+                            'fastapi': 'FastAPI (Python)',
+                            'spring': 'Spring Boot (Java)',
+                            'dotnet': '.NET Core (C#)'
+                        });
+                    } else if (appType === 'mobile') {
+                        addFrameworkGroup('Mobile Frameworks', {
+                            'react-native': 'React Native',
+                            'flutter': 'Flutter',
+                            'swift': 'Swift (iOS)',
+                            'kotlin': 'Kotlin (Android)'
+                        });
+                    }
+                });
+            });
+            
+            function addFrameworkGroup(label, options) {
+                const group = document.createElement('optgroup');
+                group.label = label;
+                
+                for (const [value, text] of Object.entries(options)) {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = text;
+                    group.appendChild(option);
+                }
+                
+                frameworkSelect.appendChild(group);
+            }
+        }
+    });
+</script>
+{% endblock %}

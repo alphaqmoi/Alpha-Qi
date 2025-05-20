@@ -1,0 +1,300 @@
+{% extends "layout.html" %}
+
+{% block title %}AI Models | {{ app_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .model-card {
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    
+    .model-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    }
+    
+    .model-card.active {
+        border: 2px solid var(--bs-primary);
+    }
+    
+    .model-stats {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 1rem;
+    }
+    
+    .model-stat {
+        text-align: center;
+    }
+    
+    .model-stat-value {
+        font-size: 1.25rem;
+        font-weight: bold;
+    }
+    
+    .model-stat-label {
+        font-size: 0.75rem;
+        opacity: 0.7;
+    }
+    
+    .status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 0.5rem;
+    }
+    
+    .status-active {
+        background-color: var(--bs-success);
+    }
+    
+    .status-available {
+        background-color: var(--bs-warning);
+    }
+    
+    .status-unavailable {
+        background-color: var(--bs-danger);
+    }
+    
+    .v0-sidebar {
+        background-color: rgba(20, 24, 28, 0.6);
+        border-radius: 0.5rem;
+        height: calc(100vh - 240px);
+        min-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .v0-sidebar-item {
+        padding: 0.75rem 1rem;
+        border-radius: 0.25rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    
+    .v0-sidebar-item:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+    }
+    
+    .v0-sidebar-item.active {
+        background-color: rgba(var(--bs-primary-rgb), 0.2);
+        border-left: 3px solid var(--bs-primary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Sidebar -->
+    <div class="col-lg-3">
+        <div class="v0-sidebar p-3">
+            <h5 class="mb-3">
+                <i class="fas fa-robot me-2"></i>
+                Alpha-Q
+            </h5>
+            
+            <div class="mb-4">
+                <h6 class="text-muted mb-2">Navigation</h6>
+                <div class="v0-sidebar-item" onclick="window.location.href='{{ url_for('chat') }}'">
+                    <i class="fas fa-comment-alt me-2"></i>
+                    Chat
+                </div>
+                <div class="v0-sidebar-item" onclick="window.location.href='{{ url_for('index') }}'">
+                    <i class="fas fa-th-large me-2"></i>
+                    Dashboard
+                </div>
+                <div class="v0-sidebar-item active">
+                    <i class="fas fa-brain me-2"></i>
+                    AI Models
+                </div>
+                <div class="v0-sidebar-item" onclick="alert('Projects feature coming soon!')">
+                    <i class="fas fa-folder me-2"></i>
+                    Projects
+                </div>
+                <div class="v0-sidebar-item" onclick="alert('Settings feature coming soon!')">
+                    <i class="fas fa-cog me-2"></i>
+                    Settings
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <h6 class="text-muted mb-2">Model Categories</h6>
+                <div class="v0-sidebar-item active">
+                    <i class="fas fa-code me-2"></i>
+                    Code Generation
+                </div>
+                <div class="v0-sidebar-item">
+                    <i class="fas fa-comment me-2"></i>
+                    Conversational
+                </div>
+                <div class="v0-sidebar-item">
+                    <i class="fas fa-language me-2"></i>
+                    Translation
+                </div>
+                <div class="v0-sidebar-item">
+                    <i class="fas fa-image me-2"></i>
+                    Image Generation
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <h6 class="text-muted mb-2">Integrations</h6>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="huggingface_integration" checked disabled>
+                    <label class="form-check-label" for="huggingface_integration">HuggingFace</label>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="openai_integration" disabled>
+                    <label class="form-check-label" for="openai_integration">OpenAI</label>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="local_models" checked disabled>
+                    <label class="form-check-label" for="local_models">Local Models</label>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main content -->
+    <div class="col-lg-9">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h2 class="card-title mb-4">
+                    <i class="fas fa-brain me-2"></i>
+                    AI Models
+                </h2>
+                
+                <p class="lead">
+                    These models are available through HuggingFace integration and local model hosting.
+                    Choose the model that best fits your development needs.
+                </p>
+                
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    All models are automatically authenticated with HuggingFace using your API token.
+                </div>
+                
+                <div class="row g-4 mt-3">
+                    <!-- Deepseek Coder -->
+                    <div class="col-lg-4">
+                        <div class="card h-100 model-card active">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="status-indicator status-active"></span>
+                                    <span>Active</span>
+                                </div>
+                                <span class="badge bg-primary">Code</span>
+                            </div>
+                            <div class="card-body">
+                                <h5 class="card-title">Deepseek-Coder-33B</h5>
+                                <p class="card-text">A powerful code generation model trained on code repositories. Excellent for generating code in multiple languages.</p>
+                                
+                                <div class="model-stats">
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">33B</div>
+                                        <div class="model-stat-label">Parameters</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">9.2</div>
+                                        <div class="model-stat-label">HumanEval</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">92%</div>
+                                        <div class="model-stat-label">Accuracy</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer text-center">
+                                <button class="btn btn-sm btn-success" disabled>Currently Active</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- CodeLlama -->
+                    <div class="col-lg-4">
+                        <div class="card h-100 model-card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="status-indicator status-available"></span>
+                                    <span>Available</span>
+                                </div>
+                                <span class="badge bg-primary">Code</span>
+                            </div>
+                            <div class="card-body">
+                                <h5 class="card-title">CodeLlama-34B</h5>
+                                <p class="card-text">Meta's code-specialized model for programming tasks. Optimized for generating and understanding code.</p>
+                                
+                                <div class="model-stats">
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">34B</div>
+                                        <div class="model-stat-label">Parameters</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">8.9</div>
+                                        <div class="model-stat-label">HumanEval</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">89%</div>
+                                        <div class="model-stat-label">Accuracy</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer text-center">
+                                <button class="btn btn-sm btn-primary" onclick="alert('This feature will activate the CodeLlama model')">Activate Model</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Mixtral -->
+                    <div class="col-lg-4">
+                        <div class="card h-100 model-card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="status-indicator status-available"></span>
+                                    <span>Available</span>
+                                </div>
+                                <span class="badge bg-info">General</span>
+                            </div>
+                            <div class="card-body">
+                                <h5 class="card-title">Mixtral-8x7B</h5>
+                                <p class="card-text">Mixture of Experts model with strong reasoning capabilities. Good for a wide range of tasks beyond code.</p>
+                                
+                                <div class="model-stats">
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">56B</div>
+                                        <div class="model-stat-label">Parameters</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">8.3</div>
+                                        <div class="model-stat-label">HumanEval</div>
+                                    </div>
+                                    <div class="model-stat">
+                                        <div class="model-stat-value">94%</div>
+                                        <div class="model-stat-label">Accuracy</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer text-center">
+                                <button class="btn btn-sm btn-primary" onclick="alert('This feature will activate the Mixtral model')">Activate Model</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <h4 class="mb-3">Add New Models</h4>
+                    <p>Alpha-Q can automatically download and add models from HuggingFace Hub.</p>
+                    
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" placeholder="Enter HuggingFace model ID (e.g., meta-llama/Llama-2-7b)">
+                        <button class="btn btn-primary" type="button" onclick="alert('This feature will add a new model from HuggingFace')">
+                            <i class="fas fa-plus me-2"></i> Add Model
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
