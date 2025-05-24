@@ -1,32 +1,44 @@
-# Use Python 3.9 slim image
-FROM python:3.9-slim
-
-# Set working directory
-WORKDIR /app
+# Use multi-stage build
+FROM python:3.9-slim as builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libsndfile1 \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first to leverage Docker cache
+# Create and activate virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
+# Final stage
+FROM python:3.9-slim
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Set working directory
+WORKDIR /app
+
+# Copy application code
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p conversation_history uploads checkpoints
+RUN mkdir -p model_cache model_backups static uploads
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=main.py
-ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FLASK_APP=app.py \
+    FLASK_ENV=production
 
-# Expose the port
+# Expose port
 EXPOSE 5000
 
-# Run the application with Gunicorn
-CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:5000", "main:app"] 
+# Run the application with gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "--worker-class", "eventlet", "app:create_app()"] 

@@ -16,5 +16,352 @@
       "ui": "@/components/ui",
       "lib": "@/lib",
       "hooks": "@/hooks"
+    },
+    "components": {
+        "status_card": {
+            "template": "status_card.html",
+            "props": {
+                "title": "string",
+                "value": "string|number",
+                "icon": "string",
+                "status": "success|warning|danger",
+                "trend": "up|down|neutral",
+                "trend_value": "string|number"
+            }
+        },
+        "resource_chart": {
+            "template": "resource_chart.html",
+            "props": {
+                "title": "string",
+                "type": "line|bar|pie",
+                "data": "array",
+                "labels": "array",
+                "height": "number",
+                "options": "object"
+            }
+        },
+        "model_card": {
+            "template": "model_card.html",
+            "props": {
+                "name": "string",
+                "type": "string",
+                "status": "active|inactive|loading",
+                "parameters": "object",
+                "metrics": "object",
+                "actions": "array"
+            }
+        },
+        "alert": {
+            "template": "alert.html",
+            "props": {
+                "type": "success|danger|warning|info",
+                "message": "string",
+                "dismissible": "boolean",
+                "icon": "string"
+            }
+        },
+        "button": {
+            "template": "button.html",
+            "props": {
+                "type": "primary|secondary|success|danger|warning|info|outline",
+                "size": "sm|md|lg",
+                "icon": "string",
+                "loading": "boolean",
+                "disabled": "boolean",
+                "text": "string"
+            }
+        },
+        "input": {
+            "template": "input.html",
+            "props": {
+                "type": "text|number|password|email|search",
+                "label": "string",
+                "placeholder": "string",
+                "value": "string|number",
+                "error": "string",
+                "disabled": "boolean",
+                "required": "boolean"
+            }
+        },
+        "select": {
+            "template": "select.html",
+            "props": {
+                "label": "string",
+                "options": "array",
+                "value": "string|number",
+                "multiple": "boolean",
+                "disabled": "boolean",
+                "required": "boolean"
+            }
+        },
+        "table": {
+            "template": "table.html",
+            "props": {
+                "headers": "array",
+                "rows": "array",
+                "sortable": "boolean",
+                "filterable": "boolean",
+                "pagination": "boolean",
+                "page_size": "number"
+            }
+        },
+        "modal": {
+            "template": "modal.html",
+            "props": {
+                "title": "string",
+                "size": "sm|md|lg|xl",
+                "show": "boolean",
+                "closeable": "boolean",
+                "footer": "boolean"
+            }
+        },
+        "tabs": {
+            "template": "tabs.html",
+            "props": {
+                "tabs": "array",
+                "active": "string",
+                "type": "line|box|pill",
+                "position": "top|left|right|bottom"
+            }
+        },
+        "badge": {
+            "template": "badge.html",
+            "props": {
+                "type": "primary|secondary|success|danger|warning|info",
+                "text": "string",
+                "pill": "boolean"
+            }
+        },
+        "progress": {
+            "template": "progress.html",
+            "props": {
+                "value": "number",
+                "max": "number",
+                "type": "primary|success|warning|danger",
+                "striped": "boolean",
+                "animated": "boolean",
+                "label": "string"
+            }
+        },
+        "tooltip": {
+            "template": "tooltip.html",
+            "props": {
+                "text": "string",
+                "position": "top|right|bottom|left",
+                "trigger": "hover|click|focus",
+                "delay": "number"
+            }
+        },
+        "dropdown": {
+            "template": "dropdown.html",
+            "props": {
+                "trigger": "string",
+                "items": "array",
+                "position": "left|right",
+                "align": "start|center|end"
+            }
+        },
+        "card": {
+            "template": "card.html",
+            "props": {
+                "title": "string",
+                "subtitle": "string",
+                "header": "boolean",
+                "footer": "boolean",
+                "bordered": "boolean",
+                "shadow": "boolean"
+            }
+        },
+        "form": {
+            "template": "form.html",
+            "props": {
+                "action": "string",
+                "method": "get|post",
+                "enctype": "string",
+                "novalidate": "boolean"
+            }
+        },
+        "checkbox": {
+            "template": "checkbox.html",
+            "props": {
+                "label": "string",
+                "checked": "boolean",
+                "disabled": "boolean",
+                "required": "boolean"
+            }
+        },
+        "radio": {
+            "template": "radio.html",
+            "props": {
+                "name": "string",
+                "options": "array",
+                "value": "string|number",
+                "disabled": "boolean",
+                "required": "boolean"
+            }
+        },
+        "switch": {
+            "template": "switch.html",
+            "props": {
+                "label": "string",
+                "checked": "boolean",
+                "disabled": "boolean",
+                "size": "sm|md|lg"
+            }
+        },
+        "textarea": {
+            "template": "textarea.html",
+            "props": {
+                "label": "string",
+                "placeholder": "string",
+                "value": "string",
+                "rows": "number",
+                "disabled": "boolean",
+                "required": "boolean"
+            }
+        },
+        "file_input": {
+            "template": "file_input.html",
+            "props": {
+                "label": "string",
+                "accept": "string",
+                "multiple": "boolean",
+                "disabled": "boolean",
+                "required": "boolean"
+            }
+        },
+        "pagination": {
+            "template": "pagination.html",
+            "props": {
+                "total": "number",
+                "per_page": "number",
+                "current_page": "number",
+                "show_first": "boolean",
+                "show_last": "boolean"
+            }
+        },
+        "breadcrumb": {
+            "template": "breadcrumb.html",
+            "props": {
+                "items": "array",
+                "separator": "string"
+            }
+        },
+        "nav": {
+            "template": "nav.html",
+            "props": {
+                "items": "array",
+                "type": "tabs|pills|underline",
+                "vertical": "boolean"
+            }
+        },
+        "sidebar": {
+            "template": "sidebar.html",
+            "props": {
+                "items": "array",
+                "collapsed": "boolean",
+                "width": "string",
+                "position": "left|right"
+            }
+        },
+        "navbar": {
+            "template": "navbar.html",
+            "props": {
+                "brand": "string",
+                "items": "array",
+                "fixed": "boolean",
+                "transparent": "boolean"
+            }
+        },
+        "footer": {
+            "template": "footer.html",
+            "props": {
+                "copyright": "string",
+                "links": "array",
+                "social": "array"
+            }
+        },
+        "loading": {
+            "template": "loading.html",
+            "props": {
+                "type": "spinner|dots|progress",
+                "size": "sm|md|lg",
+                "text": "string",
+                "overlay": "boolean"
+            }
+        },
+        "toast": {
+            "template": "toast.html",
+            "props": {
+                "type": "success|danger|warning|info",
+                "message": "string",
+                "duration": "number",
+                "position": "top-right|top-left|bottom-right|bottom-left"
+            }
+        }
+    },
+    "themes": {
+        "light": {
+            "primary": "#2563eb",
+            "secondary": "#4f46e5",
+            "success": "#22c55e",
+            "danger": "#ef4444",
+            "warning": "#f59e0b",
+            "info": "#3b82f6",
+            "light": "#f3f4f6",
+            "dark": "#1f2937",
+            "background": "#ffffff",
+            "text": "#111827",
+            "border": "#e5e7eb"
+        },
+        "dark": {
+            "primary": "#3b82f6",
+            "secondary": "#6366f1",
+            "success": "#34d399",
+            "danger": "#f87171",
+            "warning": "#fbbf24",
+            "info": "#60a5fa",
+            "light": "#1f2937",
+            "dark": "#f3f4f6",
+            "background": "#111827",
+            "text": "#f3f4f6",
+            "border": "#374151"
+        }
+    },
+    "icons": {
+        "status": {
+            "success": "check-circle",
+            "warning": "exclamation-triangle",
+            "danger": "x-circle",
+            "info": "information-circle"
+        },
+        "actions": {
+            "edit": "pencil",
+            "delete": "trash",
+            "view": "eye",
+            "download": "download",
+            "upload": "upload",
+            "refresh": "refresh",
+            "settings": "cog",
+            "menu": "menu",
+            "close": "x",
+            "search": "search",
+            "filter": "filter",
+            "sort": "sort",
+            "add": "plus",
+            "remove": "minus"
+        },
+        "navigation": {
+            "home": "home",
+            "dashboard": "chart-bar",
+            "users": "users",
+            "settings": "cog",
+            "logout": "logout",
+            "profile": "user",
+            "notifications": "bell",
+            "messages": "mail",
+            "calendar": "calendar",
+            "tasks": "check-square"
+        }
     }
 }

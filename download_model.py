@@ -66,4 +66,6 @@ def download_model(model_name="Salesforce/codegen-350M-mono", max_retries=5):
 if __name__ == "__main__":
     model_name = sys.argv[1] if len(sys.argv) > 1 else "Salesforce/codegen-350M-mono"
     success = download_model(model_name)
-    sys.exit(0 if success else 1) 
+    sys.exit(0 if success else 1)
+
+"""Handles model downloads and quantization (stub).""" 

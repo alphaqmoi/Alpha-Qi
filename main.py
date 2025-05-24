@@ -1,3 +1,13 @@
+try:
+    import google.colab
+    IN_COLAB = True
+    # Put any Colab-specific initialization here, if needed
+    # For example, mounting Google Drive:
+    # from google.colab import drive
+    # drive.mount('/content/drive')
+except ImportError:
+    IN_COLAB = False
+
 from flask import Flask, request, jsonify, Response, send_file
 from flasgger import Swagger, swag_from
 import logging

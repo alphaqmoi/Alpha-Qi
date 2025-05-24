@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Generator, Any
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
-from functools import lru_cache
+from functools import lru_cache, wraps
 import re
 from tqdm import tqdm
 
@@ -44,6 +44,24 @@ from terminal_git import TerminalGitManager
 from model_manager import ModelManager
 import signal
 import atexit
+from resource_manager import get_resource_manager, resource_aware
+from model_manager import get_model_manager, ModelConfig
+from utils.cloud_controller import get_cloud_controller
+from utils.cloud_offloader import get_cloud_offloader, OffloadStrategy
+import psutil
+
+# Import additional modules
+from datetime import datetime, timedelta
+from collections import defaultdict
+import GPUtil
+from utils.colab_integration import init_colab, check_and_use_colab, get_colab_manager
+from utils.enhanced_monitoring import get_monitor
+
+# Import system routes blueprint
+from routes.system_routes import system_bp
+
+# Import SocketIO
+from flask_socketio import SocketIO, emit
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -59,9 +77,21 @@ app.config.from_object(Config)
 
 # Initialize managers
 project_manager = ProjectManager()
-ai_assistant = AICodeAssistant(model_name="Salesforce/codegen-2B-mono")
 code_navigator = CodeNavigator()
 terminal_git = TerminalGitManager(os.getcwd())
+
+# Global variable for AI assistant
+ai_assistant = None
+
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+def initialize_ai_assistant():
+    """Initialize the AI assistant within the app context"""
+    global ai_assistant
+    if ai_assistant is None:
+        ai_assistant = AICodeAssistant(model_name="Salesforce/codegen-2B-mono")
+    return ai_assistant
 
 # Set environment variables for Supabase
 os.environ["SUPABASE_URL"] = os.environ.get("SUPABASE_URL", "https://xxwrambzzwfmxqytoroh.supabase.co")
@@ -87,250 +117,227 @@ else:
 
 CORS(app)
 
-class EnhancedAIAssistant:
-    def __init__(self):
-        self.max_length = 2048
-        # Load environment variables
-        dotenv.load_dotenv()
-        self.hf_token = os.getenv('HUGGINGFACE_TOKEN')
-        if not self.hf_token:
-            raise ValueError("HUGGINGFACE_TOKEN environment variable is not set")
-        
-        self.text_model = None
-        self.text_tokenizer = None
-        self.initialize_models()
-        self.user_contexts = {}
-        self.executor = ThreadPoolExecutor(max_workers=4)
-        self.chunk_size = 512
-        self.streaming = True
-        
-    def initialize_models(self):
-        """Initialize all AI models with proper error handling and fallbacks."""
-        try:
-            # Initialize text generation model
-            self.text_model = AutoModelForCausalLM.from_pretrained(
-                "gpt2",
-                token=self.hf_token,
-                trust_remote_code=True,
-                device_map="auto"
-            )
-            self.text_tokenizer = AutoTokenizer.from_pretrained(
-                "gpt2",
-                token=self.hf_token,
-                trust_remote_code=True
-            )
+# Create thread pool for async operations
+thread_pool = ThreadPoolExecutor(max_workers=4)
 
-            logger.info("Successfully loaded text model")
-        except Exception as e:
-            logger.error(f"Error loading text model: {str(e)}")
-            logger.info("Falling back to CPU model")
-            self._load_fallback_models()
-    
-    def _load_fallback_models(self):
-        """Load fallback models that are guaranteed to work on CPU."""
-        try:
-            # Initialize text generation model
-            self.text_model = AutoModelForCausalLM.from_pretrained(
-                "gpt2",
-                token=self.hf_token,
-                trust_remote_code=True,
-                device_map="cpu"
-            )
-            self.text_tokenizer = AutoTokenizer.from_pretrained(
-                "gpt2",
-                token=self.hf_token,
-                trust_remote_code=True
-            )
+# Initialize managers
+resource_manager = get_resource_manager()
+model_manager = get_model_manager()
 
-            logger.info("Successfully loaded fallback text model")
-        except Exception as e:
-            logger.error(f"Error loading fallback text model: {str(e)}")
-            raise RuntimeError("Failed to load text model")
-    
-    @lru_cache(maxsize=32)
-    def _cache_models(self):
-        """Cache model outputs for common inputs"""
-        pass
-    
-    def chunk_text(self, text: str) -> List[str]:
-        """Split long text into manageable chunks"""
-        tokens = self.text_tokenizer.encode(text)
-        chunks = []
+# Initialize monitoring and Colab integration
+monitor = get_monitor()
+colab_manager = get_colab_manager()
+
+def async_route(f):
+    """Decorator to make routes asynchronous"""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        return asyncio.run(f(*args, **kwargs))
+    return wrapped
+
+def resource_aware_route(f):
+    """Decorator to make routes resource-aware"""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        # Check system resources before processing
+        resource_usage = resource_manager.get_resource_usage()
+        if resource_usage['memory']['percent'] >= 95:
+            return jsonify({
+                'error': 'System resources critically low',
+                'status': 'error',
+                'resource_usage': resource_usage
+            }), 503
         
-        for i in range(0, len(tokens), self.chunk_size):
-            chunk_tokens = tokens[i:i + self.chunk_size]
-            chunk_text = self.text_tokenizer.decode(chunk_tokens)
-            chunks.append(chunk_text)
-        
-        return chunks
-    
-    def process_long_text(self, text: str, context_type: str = "general") -> Generator[str, None, None]:
-        """Process long text in chunks and stream results"""
-        chunks = self.chunk_text(text)
-        
-        for chunk in chunks:
-            response = self.generate_response(
-                user_input=chunk,
-                user_id="system",
-                context_type=context_type
-            )
-            yield response["response"]
-    
-    def generate_streaming_response(
-        self,
-        user_input: str,
-        user_id: str,
-        context_type: str = "general",
-        file_context: Optional[str] = None
-    ) -> Generator[Dict[str, Any], None, None]:
-        """Generate streaming response with progress updates"""
-        context = self.get_user_context(user_id)
-        
-        # Prepare input based on context type
-        if context_type == "instruction":
-            model = self.text_model
-            tokenizer = self.text_tokenizer
-            examples = self.alpaca_dataset["train"][:2]
-            prompt = self._format_instruction_prompt(user_input, examples)
-        elif context_type == "persona":
-            model = self.text_model
-            tokenizer = self.text_tokenizer
-            prompt = self._format_persona_prompt(user_input, context)
-        elif context_type == "qa" and file_context:
-            model = self.text_model
-            tokenizer = self.text_tokenizer
-            prompt = self._format_qa_prompt(user_input, file_context)
-        else:
-            model = self.text_model
-            tokenizer = self.text_tokenizer
-            prompt = self._format_conversation_prompt(user_input, context)
-        
-        # Create streamer for token-by-token generation
-        streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
-        
-        # Prepare generation inputs
-        inputs = tokenizer(prompt, return_tensors="pt", padding=True)
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
-        
-        # Start generation in a separate thread
-        generation_kwargs = dict(
-            **inputs,
-            streamer=streamer,
-            max_length=self.max_length,
-            num_return_sequences=1,
-            temperature=0.7,
-            top_p=0.9,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id
+        return f(*args, **kwargs)
+    return wrapped
+
+@app.before_first_request
+def initialize():
+    """Initialize the application"""
+    # Start resource monitoring
+    resource_manager.start_monitoring()
+    # Initialize AI assistant within app context
+    initialize_ai_assistant()
+    logger.info("Application initialized")
+
+@app.teardown_appcontext
+def cleanup(exception=None):
+    """Cleanup when the application context ends"""
+    if exception:
+        logger.error(f"Application error: {exception}")
+
+@app.route('/api/system/status', methods=['GET'])
+def system_status():
+    """Get system resource status"""
+    return jsonify(resource_manager.get_resource_usage())
+
+@app.route('/api/models', methods=['GET'])
+def list_models():
+    """List available models"""
+    return jsonify({
+        'models': model_manager.list_available_models()
+    })
+
+@app.route('/api/models/<model_id>', methods=['GET'])
+def get_model(model_id: str):
+    """Get information about a specific model"""
+    return jsonify(model_manager.get_model_info(model_id))
+
+@app.route('/api/models/<model_id>/load', methods=['POST'])
+@resource_aware_route
+@async_route
+async def load_model(model_id: str):
+    """Load a model with optimization settings"""
+    try:
+        config_data = request.json or {}
+        config = ModelConfig(
+            model_id=model_id,
+            quantized=config_data.get('quantized', True),
+            bits=config_data.get('bits', 8),
+            device_map=config_data.get('device_map', 'auto'),
+            low_cpu_mem_usage=config_data.get('low_cpu_mem_usage', True)
         )
         
-        thread = ThreadPoolExecutor(max_workers=1)
-        future = thread.submit(model.generate, **generation_kwargs)
+        # Load model in thread pool
+        model, tokenizer = await asyncio.get_event_loop().run_in_executor(
+            thread_pool,
+            model_manager.load_model,
+            model_id,
+            config
+        )
         
-        # Stream the response
-        collected_response = ""
-        for new_text in streamer:
-            collected_response += new_text
-            yield {
-                "response": new_text,
-                "context_type": context_type,
-                "timestamp": datetime.datetime.now().isoformat(),
-                "is_complete": False
-            }
-        
-        # Update conversation history
-        context["conversation_history"].append({
-            "user": user_input,
-            "assistant": collected_response,
-            "timestamp": datetime.datetime.now().isoformat()
+        return jsonify({
+            'status': 'success',
+            'message': f'Model {model_id} loaded successfully',
+            'model_info': model_manager.get_model_info(model_id)
         })
+    except Exception as e:
+        logger.error(f"Error loading model {model_id}: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/models/<model_id>/unload', methods=['POST'])
+@resource_aware_route
+def unload_model(model_id: str):
+    """Unload a model to free resources"""
+    try:
+        model_manager.unload_model(model_id)
+        return jsonify({
+            'status': 'success',
+            'message': f'Model {model_id} unloaded successfully'
+        })
+    except Exception as e:
+        logger.error(f"Error unloading model {model_id}: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/models/<model_id>/optimize', methods=['POST'])
+@resource_aware_route
+@async_route
+async def optimize_model(model_id: str):
+    """Optimize a model for better performance"""
+    try:
+        target_format = request.json.get('format', 'onnx')
         
-        # Send completion signal
-        yield {
-            "response": "",
-            "context_type": context_type,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "is_complete": True
-        }
-    
-    def generate_response(
-        self,
-        user_input: str,
-        user_id: str,
-        context_type: str = "general",
-        file_context: Optional[str] = None
-    ) -> Dict:
-        """Generate response with support for long inputs"""
-        if len(user_input) > self.chunk_size * 4:  # If input is very long
-            return {
-                "response": "".join(self.process_long_text(user_input, context_type)),
-                "context_type": context_type,
-                "timestamp": datetime.datetime.now().isoformat()
-            }
-        
-        # For shorter inputs, use streaming response
-        response_generator = self.generate_streaming_response(
-            user_input=user_input,
-            user_id=user_id,
-            context_type=context_type,
-            file_context=file_context
+        # Optimize model in thread pool
+        await asyncio.get_event_loop().run_in_executor(
+            thread_pool,
+            model_manager.optimize_model,
+            model_id,
+            target_format
         )
         
-        # Collect the complete response
-        complete_response = ""
-        for chunk in response_generator:
-            if not chunk["is_complete"]:
-                complete_response += chunk["response"]
+        return jsonify({
+            'status': 'success',
+            'message': f'Model {model_id} optimized successfully'
+        })
+    except Exception as e:
+        logger.error(f"Error optimizing model {model_id}: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/code/assist', methods=['POST'])
+@resource_aware_route
+@async_route
+async def code_assist():
+    """Code assistance endpoint with Colab support"""
+    # Check if we should use Colab
+    if colab_manager.colab_connected:
+        # Use Colab for processing
+        return await process_with_colab(request.json)
+    else:
+        # Use local processing
+        return await process_locally(request.json)
+
+async def process_with_colab(data):
+    """Process request using Colab"""
+    try:
+        # Update task configuration
+        colab_manager.update_task_queue()
         
-        return {
-            "response": complete_response,
-            "context_type": context_type,
-            "timestamp": datetime.datetime.now().isoformat()
-        }
-    
-    def get_user_context(self, user_id: str) -> Dict:
-        if user_id not in self.user_contexts:
-            self.user_contexts[user_id] = {
-                "conversation_history": [],
-                "preferences": {},
-                "last_interaction": datetime.datetime.now(),
-                "voice_profile": None
-            }
-        return self.user_contexts[user_id]
-    
-    def process_voice_input(self, audio_data: bytes, user_id: str) -> Dict:
-        """Placeholder for voice processing - to be implemented later"""
-        return {"status": "not_implemented", "message": "Voice processing not yet implemented"}
-    
-    def _format_instruction_prompt(self, user_input: str, examples: List[Dict]) -> str:
-        prompt = "Follow these examples:\n"
-        for ex in examples:
-            prompt += f"Input: {ex['instruction']}\nOutput: {ex['output']}\n\n"
-        prompt += f"Input: {user_input}\nOutput:"
-        return prompt
-    
-    def _format_persona_prompt(self, user_input: str, context: Dict) -> str:
-        # Add persona context from personachat dataset
-        persona_examples = self.personachat_dataset["train"][:2]
-        prompt = "Maintain consistent persona:\n"
-        for ex in persona_examples:
-            prompt += f"Context: {ex['context']}\nResponse: {ex['response']}\n\n"
-        prompt += f"User: {user_input}\nAssistant:"
-        return prompt
-    
-    def _format_qa_prompt(self, user_input: str, file_context: str) -> str:
-        # Add file context for QA
-        prompt = f"Context: {file_context}\n\nQuestion: {user_input}\nAnswer:"
-        return prompt
-    
-    def _format_conversation_prompt(self, user_input: str, context: Dict) -> str:
-        # Add conversation history
-        history = context["conversation_history"][-3:]  # Last 3 exchanges
-        prompt = ""
-        for exchange in history:
-            prompt += f"User: {exchange['user']}\nAssistant: {exchange['assistant']}\n\n"
-        prompt += f"User: {user_input}\nAssistant:"
-        return prompt
+        # Process using Colab runtime
+        # ... existing processing logic ...
+        
+        return jsonify({'result': result, 'processed_by': 'colab'})
+    except Exception as e:
+        logger.error(f"Error processing with Colab: {str(e)}")
+        # Fallback to local processing
+        return await process_locally(data)
+
+async def process_locally(data):
+    """Process request locally"""
+    # ... existing local processing logic ...
+    return jsonify({'result': result, 'processed_by': 'local'})
+
+@app.route('/api/code/explain', methods=['POST'])
+@resource_aware_route
+@async_route
+async def explain_code():
+    """Code explanation endpoint with resource awareness"""
+    try:
+        data = request.json
+        if not data or 'code' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No code provided'
+            }), 400
+        
+        # Get model for code explanation
+        model_id = data.get('model', 'gpt2')
+        model, tokenizer = await asyncio.get_event_loop().run_in_executor(
+            thread_pool,
+            model_manager.load_model,
+            model_id
+        )
+        
+        # Process code explanation in thread pool
+        result = await asyncio.get_event_loop().run_in_executor(
+            thread_pool,
+            lambda: process_code_explanation(model, tokenizer, data['code'])
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'explanation': result
+        })
+    except Exception as e:
+        logger.error(f"Error in code explanation: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+def process_code_explanation(model, tokenizer, code: str) -> str:
+    """Process code explanation request"""
+    # Implementation would use the model to explain the code
+    # This is a placeholder that would be replaced with actual model inference
+    return "Code explanation placeholder"
 
 # Initialize AI assistant
 def initialize_ai():
@@ -404,7 +411,7 @@ def run_command(command):
         }
 
 # Import models after initializing db
-from models import User, Project, ChatMessage, AIModel, init_db
+from models import User, Project, ChatMessage, Model, init_db
 
 # Initialize the database
 try:
@@ -439,7 +446,7 @@ def inject_global_context():
     
     # Get active AI model
     try:
-        active_model = AIModel.query.filter_by(is_active=True).first()
+        active_model = Model.query.filter_by(is_active=True).first()
         model_name = active_model.name if active_model else "Deepseek-Coder-33B-Instruct"
     except Exception as e:
         logger.warning(f"Error querying active model: {str(e)}")
@@ -654,7 +661,7 @@ def models():
     """Render the models management interface."""
     # Get list of models from database
     try:
-        models_list = AIModel.query.all()
+        models_list = Model.query.all()
     except Exception as e:
         logger.error(f"Error querying models: {str(e)}")
         models_list = []
@@ -1123,7 +1130,7 @@ def explain():
         })
         
     except Exception as e:
-        logger.error(f"Error explaining code: {str(e)}")
+        logger.error(f"Error explaining code: {e}")
         return jsonify({
             "status": "error",
             "message": str(e)
@@ -1179,6 +1186,847 @@ def get_checkpoints():
             "message": str(e)
         }), 500
 
+# Cloud resource management endpoints
+@app.route('/api/cloud/status', methods=['GET'])
+def cloud_status():
+    """Get detailed cloud status including model and task information."""
+    try:
+        offloader = get_cloud_offloader()
+        status = offloader.get_status()
+        
+        # Add additional system information
+        status.update({
+            'system': {
+                'cpu_percent': psutil.cpu_percent(),
+                'memory_percent': psutil.virtual_memory().percent,
+                'disk_usage': psutil.disk_usage('/').percent
+            },
+            'settings': {
+                'strategy': os.getenv('MODEL_STRATEGY', 'colab'),
+                'external_resources_enabled': True,  # Default to True
+                'resource_threshold': int(os.getenv('RESOURCE_THRESHOLD', '80'))
+            }
+        })
+        
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"Error getting cloud status: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+def manage_settings():
+    """Get or update application settings."""
+    controller = get_cloud_controller()
+    
+    if request.method == 'POST':
+        settings = request.get_json()
+        controller.update_settings(settings)
+        return jsonify({'success': True, 'message': 'Settings updated'})
+    
+    return jsonify(controller.get_status())
+
+@app.route('/api/cloud/offload', methods=['POST'])
+def offload_task():
+    """Offload a task to cloud resources if available."""
+    controller = get_cloud_controller()
+    
+    if not controller.should_use_cloud():
+        return jsonify({
+            'success': False,
+            'message': 'Cloud resources not available or disabled',
+            'reason': 'settings' if not controller.settings.external_resources_enabled else 'resources'
+        }), 400
+    
+    # Get task details from request
+    task_data = request.get_json()
+    
+    try:
+        # Here you would implement the actual cloud offloading logic
+        # For now, we'll just return a success message
+        return jsonify({
+            'success': True,
+            'message': 'Task offloaded to cloud',
+            'task_id': 'cloud-task-123'  # Replace with actual task ID
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Failed to offload task: {str(e)}'
+        }), 500
+
+@app.route('/api/models/<model_name>/reload', methods=['POST'])
+def reload_model(model_name: str):
+    """Reload a model in the cloud."""
+    try:
+        offloader = get_cloud_offloader()
+        task_id = offloader.offload_task({
+            'action': 'reload',
+            'model': model_name,
+            'strategy': OffloadStrategy.COLAB
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Model {model_name} reload requested',
+            'task_id': task_id
+        })
+    except Exception as e:
+        logger.error(f"Error reloading model {model_name}: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/tasks/<task_id>', methods=['GET'])
+def get_task_status(task_id: str):
+    """Get status of a specific task."""
+    try:
+        offloader = get_cloud_offloader()
+        status = offloader.get_task_status(task_id)
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"Error getting task status: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/tasks', methods=['GET'])
+def list_tasks():
+    """List all tasks and their status."""
+    try:
+        offloader = get_cloud_offloader()
+        status = offloader.get_status()
+        return jsonify({
+            'success': True,
+            'tasks': status.get('active_tasks', []),
+            'queue_size': status.get('queue_size', 0)
+        })
+    except Exception as e:
+        logger.error(f"Error listing tasks: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/monitor')
+def monitor_dashboard():
+    """Serve the monitoring dashboard."""
+    return render_template('monitoring_dashboard.html')
+
+@app.route('/api/system/metrics')
+def get_system_metrics():
+    """Get current system metrics."""
+    metrics = monitor.get_current_metrics()
+    return jsonify({
+        'timestamp': datetime.now().isoformat(),
+        'cpu_percent': metrics.cpu_percent,
+        'memory_percent': metrics.memory_percent,
+        'disk_usage_percent': metrics.disk_usage_percent,
+        'gpu_utilization': metrics.gpu_utilization,
+        'network_sent': metrics.network_sent_rate,
+        'network_recv': metrics.network_recv_rate,
+        'colab_connected': colab_manager.is_connected()
+    })
+
+@app.route('/api/system/alerts')
+def get_system_alerts():
+    """Get current system alerts."""
+    alerts = monitor.get_active_alerts()
+    return jsonify({
+        'alerts': [
+            {
+                'type': alert.type,
+                'message': alert.message,
+                'details': alert.details,
+                'timestamp': alert.timestamp.isoformat()
+            }
+            for alert in alerts
+        ]
+    })
+
+@app.route('/api/tasks/active')
+def get_active_tasks():
+    """Get list of active tasks."""
+    tasks = monitor.get_active_tasks()
+    return jsonify({
+        'tasks': [
+            {
+                'name': task.name,
+                'status': task.status,
+                'description': task.description,
+                'started_at': task.started_at.isoformat(),
+                'progress': task.progress
+            }
+            for task in tasks
+        ]
+    })
+
+@app.route('/api/system/metrics/history')
+def get_metrics_history():
+    """Get historical metrics data."""
+    history = monitor.get_metrics_history()
+    return jsonify({
+        'timestamps': [m.timestamp.isoformat() for m in history],
+        'cpu': [m.cpu_percent for m in history],
+        'memory': [m.memory_percent for m in history],
+        'disk': [m.disk_usage_percent for m in history],
+        'gpu': [m.gpu_utilization for m in history],
+        'network_sent': [m.network_sent_rate for m in history],
+        'network_recv': [m.network_recv_rate for m in history]
+    })
+
+@app.route('/api/system/status')
+def get_system_status():
+    """Get overall system status."""
+    metrics = monitor.get_current_metrics()
+    alerts = monitor.get_active_alerts()
+    tasks = monitor.get_active_tasks()
+    
+    # Calculate system health score (0-100)
+    health_score = 100
+    if metrics.cpu_percent > 90:
+        health_score -= 20
+    elif metrics.cpu_percent > 80:
+        health_score -= 10
+        
+    if metrics.memory_percent > 90:
+        health_score -= 20
+    elif metrics.memory_percent > 80:
+        health_score -= 10
+        
+    if metrics.disk_usage_percent > 90:
+        health_score -= 20
+    elif metrics.disk_usage_percent > 80:
+        health_score -= 10
+        
+    if metrics.gpu_utilization and metrics.gpu_utilization > 90:
+        health_score -= 20
+    elif metrics.gpu_utilization and metrics.gpu_utilization > 80:
+        health_score -= 10
+        
+    # Deduct points for alerts
+    health_score -= len(alerts) * 10
+    
+    return jsonify({
+        'status': {
+            'health_score': max(0, health_score),
+            'colab_connected': colab_manager.is_connected(),
+            'active_tasks': len(tasks),
+            'active_alerts': len(alerts),
+            'last_update': datetime.now().isoformat()
+        },
+        'metrics': {
+            'cpu_percent': metrics.cpu_percent,
+            'memory_percent': metrics.memory_percent,
+            'disk_usage_percent': metrics.disk_usage_percent,
+            'gpu_utilization': metrics.gpu_utilization,
+            'network_sent_rate': metrics.network_sent_rate,
+            'network_recv_rate': metrics.network_recv_rate
+        }
+    })
+
+# Initialize Colab integration
+@app.before_first_request
+def initialize_colab():
+    """Initialize Colab integration on first request"""
+    if os.getenv('COLAB_AUTO_CONNECT', 'true').lower() == 'true':
+        init_colab()
+
+# Add Colab status endpoint
+@app.route('/api/system/colab/status')
+def colab_status():
+    """Get Colab connection status"""
+    return jsonify({
+        'connected': colab_manager.colab_connected,
+        'resources': colab_manager.check_local_resources(),
+        'runtime': colab_manager.colab_runtime
+    })
+
+# Add Colab control endpoint
+@app.route('/api/system/colab/control', methods=['POST'])
+def colab_control():
+    """Control Colab integration"""
+    action = request.json.get('action')
+    
+    if action == 'connect':
+        success = colab_manager.connect_to_colab()
+    elif action == 'disconnect':
+        colab_manager.cleanup()
+        success = True
+    elif action == 'check':
+        success = check_and_use_colab()
+    else:
+        return jsonify({'error': 'Invalid action'}), 400
+    
+    return jsonify({'success': success})
+
+@app.route('/system')
+def system_dashboard():
+    """Render the system management dashboard"""
+    return render_template('system_manager.html')
+
+# Model Management API Endpoints
+@app.route('/api/models', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@resource_aware_route
+def manage_models():
+    """Comprehensive model management endpoint"""
+    if request.method == 'GET':
+        try:
+            # Get query parameters
+            status = request.args.get('status')
+            model_type = request.args.get('type')
+            active_only = request.args.get('active_only', 'false').lower() == 'true'
+            
+            # Build query
+            query = Model.query
+            if status:
+                query = query.filter_by(status=status)
+            if model_type:
+                query = query.filter_by(type=model_type)
+            if active_only:
+                query = query.filter_by(is_active=True)
+            
+            models = query.all()
+            return jsonify({
+                'status': 'success',
+                'models': [{
+                    'id': model.id,
+                    'name': model.name,
+                    'type': model.type,
+                    'status': model.status,
+                    'is_active': model.is_active,
+                    'parameters': model.parameters,
+                    'last_used': model.last_used.isoformat() if model.last_used else None,
+                    'total_requests': model.total_requests,
+                    'success_rate': model.success_rate,
+                    'avg_response_time': model.avg_response_time
+                } for model in models]
+            })
+        except Exception as e:
+            logger.error(f"Error listing models: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+            
+    elif request.method == 'POST':
+        try:
+            data = request.json
+            required_fields = ['name', 'type', 'api_key', 'base_url']
+            
+            # Validate required fields
+            if not all(field in data for field in required_fields):
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Missing required fields: {", ".join(required_fields)}'
+                }), 400
+            
+            # Create new model
+            model = Model(
+                name=data['name'],
+                type=data['type'],
+                api_key=data['api_key'],
+                base_url=data['base_url'],
+                parameters=data.get('parameters', {}),
+                status='inactive',
+                is_active=data.get('is_active', False)
+            )
+            
+            db.session.add(model)
+            db.session.commit()
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Model {model.name} created successfully',
+                'model_id': model.id
+            })
+            
+        except Exception as e:
+            logger.error(f"Error creating model: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+            
+    elif request.method == 'PUT':
+        try:
+            data = request.json
+            model_id = data.get('id')
+            
+            if not model_id:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Model ID is required'
+                }), 400
+            
+            model = Model.query.get(model_id)
+            if not model:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Model with ID {model_id} not found'
+                }), 404
+            
+            # Update model fields
+            for key, value in data.items():
+                if hasattr(model, key) and key != 'id':
+                    setattr(model, key, value)
+            
+            db.session.commit()
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Model {model.name} updated successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error updating model: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+            
+    elif request.method == 'DELETE':
+        try:
+            model_id = request.args.get('id')
+            
+            if not model_id:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Model ID is required'
+                }), 400
+            
+            model = Model.query.get(model_id)
+            if not model:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Model with ID {model_id} not found'
+                }), 404
+            
+            # Unload model if it's loaded
+            model_manager = get_model_manager()
+            if model.name in model_manager.loaded_models:
+                model_manager.unload_model(model.name)
+            
+            # Delete model
+            db.session.delete(model)
+            db.session.commit()
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Model {model.name} deleted successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error deleting model: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/models/<model_id>/test', methods=['POST'])
+@resource_aware_route
+@async_route
+async def test_model(model_id):
+    """Test model with validation"""
+    try:
+        data = request.json
+        test_type = data.get('type', 'basic')
+        test_input = data.get('input', 'Hello, how are you?')
+        
+        model = Model.query.get(model_id)
+        if not model:
+            return jsonify({
+                'status': 'error',
+                'message': f'Model with ID {model_id} not found'
+            }), 404
+        
+        model_manager = get_model_manager()
+        
+        # Run different types of tests
+        if test_type == 'basic':
+            # Basic inference test
+            result = await asyncio.get_event_loop().run_in_executor(
+                thread_pool,
+                model_manager.generate,
+                model.name,
+                test_input
+            )
+            
+        elif test_type == 'stress':
+            # Stress test with multiple concurrent requests
+            async def stress_test():
+                tasks = []
+                for _ in range(5):  # Run 5 concurrent requests
+                    task = asyncio.create_task(
+                        asyncio.get_event_loop().run_in_executor(
+                            thread_pool,
+                            model_manager.generate,
+                            model.name,
+                            test_input
+                        )
+                    )
+                    tasks.append(task)
+                return await asyncio.gather(*tasks)
+            
+            result = await stress_test()
+            
+        elif test_type == 'validation':
+            # Validation test with specific test cases
+            test_cases = [
+                "Generate a Python function to calculate fibonacci numbers",
+                "Explain the concept of recursion",
+                "Write a SQL query to join two tables"
+            ]
+            
+            results = []
+            for test_case in test_cases:
+                test_result = await asyncio.get_event_loop().run_in_executor(
+                    thread_pool,
+                    model_manager.generate,
+                    model.name,
+                    test_case
+                )
+                results.append({
+                    'input': test_case,
+                    'output': test_result
+                })
+            result = results
+            
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid test type: {test_type}'
+            }), 400
+        
+        # Update model metrics
+        model.total_requests += 1
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'test_type': test_type,
+            'result': result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error testing model: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/models/<model_id>/backup', methods=['POST'])
+@resource_aware_route
+def backup_model(model_id):
+    """Backup model configuration and state"""
+    try:
+        model = Model.query.get(model_id)
+        if not model:
+            return jsonify({
+                'status': 'error',
+                'message': f'Model with ID {model_id} not found'
+            }), 404
+        
+        # Create backup record
+        backup = Backup(
+            type='full',
+            status='pending',
+            details={
+                'model_id': model.id,
+                'model_name': model.name,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        )
+        db.session.add(backup)
+        db.session.commit()
+        
+        # Start backup process in background
+        def backup_process():
+            try:
+                model_manager = get_model_manager()
+                
+                # Backup model configuration
+                config_backup = {
+                    'name': model.name,
+                    'type': model.type,
+                    'parameters': model.parameters,
+                    'api_key': model.api_key,
+                    'base_url': model.base_url,
+                    'status': model.status,
+                    'is_active': model.is_active
+                }
+                
+                # Save configuration
+                backup_dir = os.path.join(app.config['BACKUP_DIR'], str(backup.id))
+                os.makedirs(backup_dir, exist_ok=True)
+                
+                with open(os.path.join(backup_dir, 'config.json'), 'w') as f:
+                    json.dump(config_backup, f)
+                
+                # Backup model files if loaded
+                if model.name in model_manager.loaded_models:
+                    model_data = model_manager.loaded_models[model.name]
+                    torch.save(model_data['model'].state_dict(), 
+                             os.path.join(backup_dir, 'model.pt'))
+                    torch.save(model_data['tokenizer'], 
+                             os.path.join(backup_dir, 'tokenizer.pt'))
+                
+                # Update backup status
+                backup.status = 'completed'
+                backup.size = sum(os.path.getsize(os.path.join(backup_dir, f))
+                                for f in os.listdir(backup_dir))
+                db.session.commit()
+                
+            except Exception as e:
+                logger.error(f"Error during backup: {e}")
+                backup.status = 'failed'
+                backup.details['error'] = str(e)
+                db.session.commit()
+        
+        # Start backup in background thread
+        thread = threading.Thread(target=backup_process)
+        thread.start()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Backup started',
+            'backup_id': backup.id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error initiating backup: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/models/<model_id>/restore', methods=['POST'])
+@resource_aware_route
+def restore_model(model_id):
+    """Restore model from backup"""
+    try:
+        data = request.json
+        backup_id = data.get('backup_id')
+        
+        if not backup_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'Backup ID is required'
+            }), 400
+        
+        backup = Backup.query.get(backup_id)
+        if not backup or backup.status != 'completed':
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid or incomplete backup'
+            }), 404
+        
+        # Start restore process in background
+        def restore_process():
+            try:
+                backup_dir = os.path.join(app.config['BACKUP_DIR'], str(backup.id))
+                
+                # Load configuration
+                with open(os.path.join(backup_dir, 'config.json'), 'r') as f:
+                    config = json.load(f)
+                
+                # Update model with backup configuration
+                model = Model.query.get(model_id)
+                if not model:
+                    raise ValueError(f"Model with ID {model_id} not found")
+                
+                for key, value in config.items():
+                    if hasattr(model, key):
+                        setattr(model, key, value)
+                
+                db.session.commit()
+                
+                # Restore model files if available
+                model_manager = get_model_manager()
+                if os.path.exists(os.path.join(backup_dir, 'model.pt')):
+                    # Unload current model if loaded
+                    if model.name in model_manager.loaded_models:
+                        model_manager.unload_model(model.name)
+                    
+                    # Load model from backup
+                    model_manager.load_model(model.name)
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error during restore: {e}")
+                raise
+        
+        # Start restore in background thread
+        thread = threading.Thread(target=restore_process)
+        thread.start()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Restore process started'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error initiating restore: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/models/<model_id>/version', methods=['POST'])
+@resource_aware_route
+def version_model(model_id):
+    """Create a new version of the model"""
+    try:
+        data = request.json
+        version_name = data.get('version_name')
+        description = data.get('description', '')
+        
+        if not version_name:
+            return jsonify({
+                'status': 'error',
+                'message': 'Version name is required'
+            }), 400
+        
+        model = Model.query.get(model_id)
+        if not model:
+            return jsonify({
+                'status': 'error',
+                'message': f'Model with ID {model_id} not found'
+            }), 404
+        
+        # Create version record
+        version = ModelVersion(
+            model_id=model.id,
+            version_name=version_name,
+            description=description,
+            parameters=model.parameters,
+            status='created'
+        )
+        db.session.add(version)
+        db.session.commit()
+        
+        # Start versioning process in background
+        def version_process():
+            try:
+                model_manager = get_model_manager()
+                
+                # Save current model state
+                version_dir = os.path.join(app.config['MODEL_CACHE_DIR'], 
+                                         f"{model.name}_v{version.id}")
+                os.makedirs(version_dir, exist_ok=True)
+                
+                if model.name in model_manager.loaded_models:
+                    model_data = model_manager.loaded_models[model.name]
+                    torch.save(model_data['model'].state_dict(), 
+                             os.path.join(version_dir, 'model.pt'))
+                    torch.save(model_data['tokenizer'], 
+                             os.path.join(version_dir, 'tokenizer.pt'))
+                
+                # Update version status
+                version.status = 'completed'
+                version.size = sum(os.path.getsize(os.path.join(version_dir, f))
+                                 for f in os.listdir(version_dir))
+                db.session.commit()
+                
+            except Exception as e:
+                logger.error(f"Error during versioning: {e}")
+                version.status = 'failed'
+                version.details = {'error': str(e)}
+                db.session.commit()
+        
+        # Start versioning in background thread
+        thread = threading.Thread(target=version_process)
+        thread.start()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Version creation started',
+            'version_id': version.id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating version: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/models/<model_id>/analytics', methods=['GET'])
+@resource_aware_route
+def get_model_analytics(model_id):
+    """Get model usage analytics"""
+    try:
+        model = Model.query.get(model_id)
+        if not model:
+            return jsonify({
+                'status': 'error',
+                'message': f'Model with ID {model_id} not found'
+            }), 404
+        
+        # Get time range from query parameters
+        days = int(request.args.get('days', 7))
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get usage statistics
+        usage_stats = ResourceUsage.query.filter(
+            ResourceUsage.model_id == model.id,
+            ResourceUsage.timestamp >= start_date,
+            ResourceUsage.timestamp <= end_date
+        ).order_by(ResourceUsage.timestamp).all()
+        
+        # Calculate analytics
+        analytics = {
+            'total_requests': model.total_requests,
+            'success_rate': model.success_rate,
+            'avg_response_time': model.avg_response_time,
+            'usage_over_time': [{
+                'timestamp': stat.timestamp.isoformat(),
+                'cpu_percent': stat.cpu_percent,
+                'memory_used': stat.memory_used,
+                'response_time': stat.response_time
+            } for stat in usage_stats],
+            'performance_metrics': {
+                'avg_cpu_usage': sum(stat.cpu_percent for stat in usage_stats) / len(usage_stats) if usage_stats else 0,
+                'avg_memory_usage': sum(stat.memory_used for stat in usage_stats) / len(usage_stats) if usage_stats else 0,
+                'avg_response_time': sum(stat.response_time for stat in usage_stats) / len(usage_stats) if usage_stats else 0
+            }
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'model_name': model.name,
+            'analytics': analytics
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting model analytics: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@socketio.on('connect')
+def handle_connect():
+    emit('connection_response', {'status': 'connected'})
+
+@socketio.on('chat_message')
+def handle_message(data):
+    try:
+        user_id = data.get('userId', 1)
+        project_id = data.get('projectId')
+        message = data.get('message')
+        
+        # Store user message
+        chat_message = storage.create_chat_message({
+            'userId': user_id,
+            'projectId': project_id,
+            'content': message,
+            'sender': 'user'
+        })
+        
+        # Process with AI model
+        response = process_ai_message(message)
+        
+        # Store AI response
+        ai_message = storage.create_chat_message({
+            'userId': user_id,
+            'projectId': project_id,
+            'content': response,
+            'sender': 'ai'
+        })
+        
+        # Emit response to client
+        emit('chat_response', {
+            'message': response,
+            'messageId': ai_message.id,
+            'timestamp': ai_message.timestamp.isoformat()
+        })
+        
+    except Exception as e:
+        emit('error', {'message': str(e)})
+
 if __name__ == '__main__':
+    # Start the monitoring loop in a separate thread
+    monitor.start_monitoring()
+    
     # Start Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, debug=True, port=5000)

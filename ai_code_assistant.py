@@ -4,18 +4,48 @@ from typing import Dict, List, Optional, Generator
 import logging
 import torch
 from pathlib import Path
-from model_manager import ModelManager
+from model_manager import ModelManager, get_model_manager, ModelConfig
 import time
 import threading
 
 logger = logging.getLogger(__name__)
 
 class AICodeAssistant:
+    """Stub for AI code assistant. Implements generate_response and other methods."""
+    def __init__(self, model_name=None):
+        self.model_name = model_name or "Deepseek-Coder-33B-Instruct"
+    def generate_response(self, user_input, user_id, context_type, file_context=None):
+        return {
+            'response': f"[AI Response to: {user_input}]",
+            'context_type': context_type,
+            'timestamp': '2025-01-01T00:00:00'
+        }
+    def generate_code_completion(self, code, max_length=100):
+        return f"[Code completion for: {code}]"
+    def explain_code(self, code):
+        return f"[Explanation for: {code}]"
+    def refactor_code(self, code, instructions):
+        return f"[Refactored code for: {code} with {instructions}]"
+    def generate_documentation(self, code, format):
+        return f"[Documentation for: {code} in {format}]"
+    def analyze_code_quality(self, code):
+        return f"[Analysis for: {code}]"
+    def generate_tests(self, code, framework):
+        return f"[Tests for: {code} using {framework}]"
+    def save_checkpoint(self, reason):
+        pass
+    def get_checkpoint_info(self):
+        return []
+    def process_voice_input(self, audio_data, user_id):
+        return {'response': '[Voice response]', 'user_id': user_id}
+    def generate_streaming_response(self, **kwargs):
+        yield {'response': '[Streaming response chunk]'}
+
     def __init__(self, model_name: str = "codellama/CodeLlama-7b-hf"):
         self.model_name = model_name
         self.model = None
         self.tokenizer = None
-        self.model_manager = ModelManager(model_name)
+        self.model_manager = get_model_manager()  # Get the singleton instance
         self.auto_save_thread = None
         self.stop_auto_save = threading.Event()
         self.initialize_model()
@@ -23,27 +53,17 @@ class AICodeAssistant:
     def initialize_model(self):
         """Initialize the AI model for code assistance."""
         try:
-            # Check if model is already downloaded
-            if not self.model_manager.is_model_downloaded():
-                logger.info(f"Model {self.model_name} not found locally. Downloading...")
-                max_attempts = 3
-                for attempt in range(max_attempts):
-                    if self.model_manager.download_model(resume=True):
-                        break
-                    if attempt < max_attempts - 1:
-                        logger.warning(f"Download attempt {attempt + 1} failed. Retrying in 5 seconds...")
-                        time.sleep(5)
-                    else:
-                        raise RuntimeError("Failed to download model after multiple attempts")
-            
-            # Try to load from latest checkpoint first
-            if not self.model_manager.load_latest_checkpoint():
-                # If no checkpoint available, load from cache
-                if not self.model_manager.load_model():
-                    raise RuntimeError("Failed to load model from cache")
-            
-            self.model = self.model_manager.model
-            self.tokenizer = self.model_manager.tokenizer
+            # Load the model using the model manager
+            self.model, self.tokenizer = self.model_manager.load_model(
+                self.model_name,
+                ModelConfig(
+                    model_id=self.model_name,
+                    quantized=True,
+                    bits=8,
+                    device_map='auto',
+                    low_cpu_mem_usage=True
+                )
+            )
             logger.info(f"Successfully loaded model: {self.model_name}")
             
             # Start auto-save thread
@@ -87,7 +107,11 @@ class AICodeAssistant:
             if hasattr(self, 'auto_save_thread') and self.auto_save_thread:
                 self.auto_save_thread.join()
         if hasattr(self, 'model_manager'):
-            self.model_manager.save_checkpoint("object_destruction")
+            try:
+                if hasattr(self.model_manager, 'save_checkpoint'):
+                    self.model_manager.save_checkpoint("object_destruction")
+            except Exception as e:
+                logger.warning(f"Error during cleanup: {e}")
             
     def generate_code_completion(self, code: str, max_length: int = 100) -> str:
         """Generate code completion based on the given code context."""

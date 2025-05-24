@@ -1,0 +1,112 @@
+# AlphaQ Colab Server Configuration
+
+# Model Configuration
+models:
+  - name: "gpt2"
+    type: "text_generation"
+    quantization: "8bit"
+    max_length: 100
+  - name: "codegen-2B-mono"
+    type: "code_generation"
+    quantization: "4bit"
+    max_length: 200
+  - name: "deepseek-coder-33b-instruct"
+    type: "code_generation"
+    quantization: "4bit"
+    max_length: 300
+  - name: "mixtral-8x7b-instruct"
+    type: "text_generation"
+    quantization: "4bit"
+    max_length: 400
+
+# Runtime Configuration
+runtime:
+  gpu_type: "T4"  # Options: T4, P100, V100, A100
+  runtime_type: "python3"
+  memory_limit: "16GB"
+  disk_size: "100GB"
+  auto_restart: true
+  monitoring: true
+  check_interval: 300  # seconds
+
+# Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 8080
+  max_workers: 4
+  timeout: 300  # seconds
+  max_requests: 1000
+  rate_limit: 100  # requests per minute
+
+# Resource Management
+resources:
+  gpu_memory_threshold: 0.8  # 80% of available GPU memory
+  cpu_threshold: 0.9  # 90% of available CPU
+  memory_threshold: 0.9  # 90% of available RAM
+  disk_threshold: 0.8  # 80% of available disk space
+
+# Model Management
+model_management:
+  cache_dir: "/content/model_cache"
+  auto_cleanup: true
+  cleanup_threshold: 0.9  # Cleanup when disk usage exceeds 90%
+  max_cache_size: "50GB"
+  model_timeout: 600  # seconds
+
+# Monitoring and Logging
+monitoring:
+  enabled: true
+  metrics_interval: 5  # seconds
+  log_level: "INFO"
+  save_metrics: true
+  metrics_retention: 24  # hours
+  alert_thresholds:
+    gpu_memory: 0.9
+    cpu_usage: 0.9
+    memory_usage: 0.9
+    disk_usage: 0.9
+
+# Security
+security:
+  enable_auth: true
+  token_expiry: 3600  # seconds
+  max_tokens_per_user: 1000
+  allowed_origins:
+    - "http://localhost:5000"
+    - "https://alphaq.app"
+  rate_limit_by_ip: true
+  max_requests_per_ip: 100  # per minute
+
+# Fallback Configuration
+fallback:
+  enable_huggingface: true
+  enable_local: true
+  fallback_order:
+    - "colab"
+    - "huggingface"
+    - "local"
+  retry_attempts: 3
+  retry_delay: 5  # seconds
+
+# Custom Templates
+templates:
+  default: "server"
+  available:
+    - name: "server"
+      description: "Default server template with basic model serving"
+    - name: "code_generation"
+      description: "Specialized template for code generation tasks"
+    - name: "fine_tuning"
+      description: "Template for model fine-tuning tasks"
+    - name: "embedding"
+      description: "Template for text embedding tasks"
+
+# Backup and Recovery
+backup:
+  enabled: true
+  interval: 3600  # seconds
+  max_backups: 24
+  backup_dir: "/content/backups"
+  include_models: true
+  include_config: true
+  compression: true 

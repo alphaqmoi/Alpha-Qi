@@ -1,12 +1,42 @@
+"""Core AI processing engine with resource awareness (stub)."""
+
 import os
 import json
 import logging
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from urllib.error import HTTPError, URLError
+from google.colab import auth
+from google.auth import default
+from typing import Optional, Dict, Any
+import hashlib
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+class ModelCache:
+    def __init__(self, cache_dir: str = "model_cache"):
+        self.cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+        
+    def get_cache_path(self, model_id: str, inputs: str) -> str:
+        """Get cache file path for given model and inputs"""
+        input_hash = hashlib.md5(inputs.encode()).hexdigest()
+        return os.path.join(self.cache_dir, f"{model_id}_{input_hash}.json")
+        
+    def get_cached_response(self, model_id: str, inputs: str) -> Optional[Dict[str, Any]]:
+        """Get cached response if available"""
+        cache_path = self.get_cache_path(model_id, inputs)
+        if os.path.exists(cache_path):
+            with open(cache_path, 'r') as f:
+                return json.load(f)
+        return None
+        
+    def cache_response(self, model_id: str, inputs: str, response: Dict[str, Any]):
+        """Cache model response"""
+        cache_path = self.get_cache_path(model_id, inputs)
+        with open(cache_path, 'w') as f:
+            json.dump(response, f)
 
 class AIEngine:
     """
@@ -41,13 +71,15 @@ class AIEngine:
         ]
     }
 
-    def __init__(self, hf_token=None):
+    def __init__(self, hf_token=None, model_id: str = "gpt2", use_colab: bool = True):
         """
         Initialize the AI Engine.
 
         Args:
             hf_token (str, optional): Hugging Face API token. If not provided,
-                                      will use HF_API_TOKEN environment variable.
+                                      will use HUGGINGFACE_TOKEN environment variable.
+            model_id (str, optional): Model ID to use
+            use_colab (bool, optional): Whether to use Colab for model loading
         """
         self.hf_token = hf_token or os.environ.get("HUGGINGFACE_TOKEN")
         if not self.hf_token:
@@ -58,17 +90,86 @@ class AIEngine:
             "Authorization": f"Bearer {self.hf_token}",
             "Content-Type": "application/json"
         }
-
-    def load_model(self, model_id):
-        """
-        Load the model and tokenizer locally using Hugging Face's Transformers.
-
-        Args:
-            model_id (str): Model identifier to load from Hugging Face model hub.
-        """
         self.model_id = model_id
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self.model = AutoModelForCausalLM.from_pretrained(model_id).to(self.device)
+        self.use_colab = use_colab
+        self.cache = ModelCache()
+        self.model = None
+        self.tokenizer = None
+
+    def initialize_model(self):
+        """Initialize the model either locally or on Colab"""
+        if self.use_colab:
+            try:
+                # Authenticate with Colab
+                auth.authenticate_user()
+                creds, _ = default()
+                
+                # TODO: Implement Colab model loading
+                # This would involve setting up a Colab notebook and
+                # communicating with it via API
+                pass
+            except Exception as e:
+                print(f"Colab initialization failed: {e}")
+                self.use_colab = False
+                
+        if not self.use_colab:
+            # Load model locally
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_id,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                device_map="auto"
+            )
+
+    def generate_response(self, prompt: str, max_length: int = 100) -> str:
+        """Generate response using the model"""
+        # Check cache first
+        cached_response = self.cache.get_cached_response(self.model_id, prompt)
+        if cached_response:
+            return cached_response['response']
+            
+        # Initialize model if needed
+        if self.model is None:
+            self.initialize_model()
+            
+        # Generate response
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        inputs = inputs.to(self.model.device)
+        
+        outputs = self.model.generate(
+            **inputs,
+            max_length=max_length,
+            num_return_sequences=1,
+            temperature=0.7,
+            do_sample=True,
+            pad_token_id=self.tokenizer.eos_token_id
+        )
+        
+        response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Cache the response
+        self.cache.cache_response(self.model_id, prompt, {'response': response})
+        
+        return response
+
+    def download_model_from_huggingface(self, model_id: str):
+        """Download model from Hugging Face"""
+        try:
+            # Download tokenizer and model
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            model = AutoModelForCausalLM.from_pretrained(model_id)
+            
+            # Save to local directory
+            save_dir = f"model_backups/{model_id}"
+            os.makedirs(save_dir, exist_ok=True)
+            
+            tokenizer.save_pretrained(save_dir)
+            model.save_pretrained(save_dir)
+            
+            return True
+        except Exception as e:
+            print(f"Error downloading model: {e}")
+            return False
 
     def generate_text(self, prompt, model_id=None, task="text-generation",
                       max_length=100, temperature=0.7, performance_level="recommended"):
