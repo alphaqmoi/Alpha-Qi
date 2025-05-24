@@ -214,3 +214,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+client_secrets.json
+"*.env"
+"credentials.json"
