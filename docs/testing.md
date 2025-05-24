@@ -54,7 +54,7 @@ This guide provides comprehensive testing strategies and examples for the Alpha-
    # tests/conftest.py
    import pytest
    from app import create_app, db
-   
+
    @pytest.fixture(scope='session')
    def app():
        """Create application for testing."""
@@ -64,12 +64,12 @@ This guide provides comprehensive testing strategies and examples for the Alpha-
            yield app
            db.session.remove()
            db.drop_all()
-   
+
    @pytest.fixture(scope='function')
    def client(app):
        """Create test client."""
        return app.test_client()
-   
+
    @pytest.fixture(scope='function')
    def runner(app):
        """Create CLI runner."""
@@ -85,13 +85,13 @@ def test_db(app):
     """Create test database."""
     connection = db.engine.connect()
     transaction = connection.begin()
-    
+
     options = dict(bind=connection, binds={})
     session = db.create_scoped_session(options=options)
     db.session = session
-    
+
     yield session
-    
+
     transaction.rollback()
     connection.close()
     session.remove()
@@ -111,19 +111,19 @@ def test_db(app):
            email='test@example.com'
        )
        user.set_password('password123')
-       
+
        test_db.add(user)
        test_db.commit()
-       
+
        assert user.id is not None
        assert user.check_password('password123')
        assert not user.check_password('wrongpass')
-   
+
    def test_model_validation(test_db):
        """Test model validation rules."""
        with pytest.raises(ValueError):
            User(username='a')  # Too short
-       
+
        with pytest.raises(ValueError):
            User(email='invalid-email')  # Invalid email
    ```
@@ -137,7 +137,7 @@ def test_db(app):
        assert manager.auto_connect is False
        assert manager.fallback_enabled is False
        assert manager.resource_threshold == 0.8
-   
+
    @pytest.mark.parametrize("input_data,expected", [
        ({"cpu": 90, "memory": 80}, True),
        ({"cpu": 50, "memory": 40}, False),
@@ -162,7 +162,7 @@ def test_db(app):
        })
        assert response.status_code == 200
        assert 'access_token' in response.json
-   
+
    def test_protected_api(client, auth_headers):
        """Test protected API endpoint."""
        response = client.get(
@@ -171,7 +171,7 @@ def test_db(app):
        )
        assert response.status_code == 200
        assert response.json['message'] == 'Protected resource'
-   
+
    @pytest.mark.parametrize("endpoint,method,expected_status", [
        ('/api/models', 'GET', 200),
        ('/api/models/1', 'GET', 404),
@@ -192,16 +192,16 @@ def test_db(app):
        user = User(username='testuser', email='test@example.com')
        test_db.add(user)
        test_db.commit()
-       
+
        # Create user preferences
        prefs = UserPreferences(user_id=user.id)
        test_db.add(prefs)
        test_db.commit()
-       
+
        # Verify relationships
        assert user.preferences is not None
        assert prefs.user is user
-   
+
    def test_transaction_rollback(test_db):
        """Test transaction rollback on error."""
        try:
@@ -211,7 +211,7 @@ def test_db(app):
                raise ValueError("Test rollback")
        except ValueError:
            pass
-       
+
        assert test_db.query(User).filter_by(
            username='testuser'
        ).first() is None
@@ -233,7 +233,7 @@ def test_db(app):
        )
        assert response.status_code == 200
        data_id = response.json['data_id']
-       
+
        # Start training
        response = client.post(
            '/api/models/train',
@@ -245,7 +245,7 @@ def test_db(app):
        )
        assert response.status_code == 200
        training_id = response.json['training_id']
-       
+
        # Check training status
        response = client.get(
            f'/api/models/training/{training_id}',
@@ -268,14 +268,14 @@ def test_db(app):
            'password': 'password123'
        })
        assert response.status_code == 200
-       
+
        # Verify email
        verification_token = get_verification_token('new@example.com')
        response = client.post('/api/auth/verify', json={
            'token': verification_token
        })
        assert response.status_code == 200
-       
+
        # Login
        response = client.post('/api/auth/login', json={
            'username': 'newuser',
@@ -295,20 +295,20 @@ def test_db(app):
        """Test API under load."""
        import time
        from concurrent.futures import ThreadPoolExecutor
-       
+
        def make_request():
            return client.get(
                '/api/models',
                headers=auth_headers
            )
-       
+
        start_time = time.time()
        with ThreadPoolExecutor(max_workers=50) as executor:
            responses = list(executor.map(make_request, range(100)))
-       
+
        duration = time.time() - start_time
        success_rate = sum(1 for r in responses if r.status_code == 200) / len(responses)
-       
+
        assert duration < 10  # Should complete within 10 seconds
        assert success_rate > 0.95  # 95% success rate
    ```
@@ -321,24 +321,24 @@ def test_db(app):
        """Test memory usage during model operations."""
        import psutil
        import torch
-       
+
        process = psutil.Process()
        initial_memory = process.memory_info().rss
-       
+
        # Load model
        model = load_model('large-model')
        model_memory = process.memory_info().rss - initial_memory
-       
+
        # Process data
        data = generate_test_data(1000)
        model(data)
        peak_memory = process.memory_info().rss
-       
+
        # Cleanup
        del model
        torch.cuda.empty_cache()
        final_memory = process.memory_info().rss
-       
+
        assert model_memory < 2 * 1024 * 1024 * 1024  # 2GB limit
        assert final_memory < initial_memory * 1.1  # 10% memory overhead
    ```
@@ -358,7 +358,7 @@ def test_db(app):
            mock_drive.mount.return_value = None
            mock_auth.authenticate_user.return_value = True
            yield mock_drive, mock_auth
-   
+
    @pytest.fixture
    def mock_huggingface():
        """Mock Hugging Face API."""
@@ -396,7 +396,7 @@ def test_db(app):
        test_db.add(user)
        test_db.commit()
        return user
-   
+
    @pytest.fixture
    def sample_model(test_db, sample_user):
        """Create sample model for testing."""
@@ -416,7 +416,7 @@ def test_db(app):
    def generate_test_data(size=1000):
        """Generate test data for model training."""
        return torch.randn(size, 10)
-   
+
    def generate_user_data(count=10):
        """Generate test user data."""
        return [
@@ -473,24 +473,24 @@ jobs:
     strategy:
       matrix:
         python-version: [3.8, 3.9, '3.10']
-    
+
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
-    
+
     - name: Run tests
       run: |
         pytest --cov=alpha_q --cov-report=xml
-    
+
     - name: Upload coverage
       uses: codecov/codecov-action@v2
       with:
@@ -529,4 +529,4 @@ For testing issues:
 1. Check the [test documentation](docs/testing.md)
 2. Review [test examples](tests/)
 3. Join the [community chat](https://discord.gg/alpha-q)
-4. Contact the maintainers 
+4. Contact the maintainers

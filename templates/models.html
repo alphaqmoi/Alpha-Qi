@@ -7,7 +7,7 @@
     .models-page {
         padding: 1rem;
     }
-    
+
     .model-card {
         background: white;
         border-radius: 12px;
@@ -17,12 +17,12 @@
         display: flex;
         flex-direction: column;
     }
-    
+
     .model-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
-    
+
     .model-header {
         padding: 1rem;
         border-bottom: 1px solid #eee;
@@ -30,56 +30,56 @@
         justify-content: space-between;
         align-items: center;
     }
-    
+
     .model-header h5 {
         margin: 0;
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
-    
+
     .model-header .badge {
         font-size: 0.8rem;
         padding: 0.25rem 0.5rem;
         border-radius: 12px;
     }
-    
+
     .model-body {
         padding: 1rem;
         flex: 1;
     }
-    
+
     .model-stats {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: 0.5rem;
         margin-bottom: 1rem;
     }
-    
+
     .stat-item {
         background: var(--light-bg);
         padding: 0.5rem;
         border-radius: 8px;
         text-align: center;
     }
-    
+
     .stat-value {
         font-size: 1.2rem;
         font-weight: bold;
         color: var(--primary-color);
     }
-    
+
     .stat-label {
         font-size: 0.8rem;
         color: var(--text-secondary);
     }
-    
+
     .model-actions {
         display: flex;
         gap: 0.5rem;
         margin-top: 1rem;
     }
-    
+
     .model-actions button {
         flex: 1;
         display: flex;
@@ -93,16 +93,16 @@
         color: var(--text-secondary);
         transition: all 0.2s;
     }
-    
+
     .model-actions button:hover {
         background: var(--primary-color);
         color: white;
     }
-    
+
     .model-actions button i {
         font-size: 1.2rem;
     }
-    
+
     .model-footer {
         padding: 1rem;
         border-top: 1px solid #eee;
@@ -110,25 +110,25 @@
         justify-content: space-between;
         align-items: center;
     }
-    
+
     .model-footer .last-used {
         font-size: 0.8rem;
         color: var(--text-secondary);
     }
-    
+
     .model-footer .toggle-switch {
         position: relative;
         display: inline-block;
         width: 40px;
         height: 20px;
     }
-    
+
     .model-footer .toggle-switch input {
         opacity: 0;
         width: 0;
         height: 0;
     }
-    
+
     .model-footer .toggle-slider {
         position: absolute;
         cursor: pointer;
@@ -140,7 +140,7 @@
         transition: .4s;
         border-radius: 20px;
     }
-    
+
     .model-footer .toggle-slider:before {
         position: absolute;
         content: "";
@@ -152,58 +152,58 @@
         transition: .4s;
         border-radius: 50%;
     }
-    
+
     .model-footer input:checked + .toggle-slider {
         background-color: var(--primary-color);
     }
-    
+
     .model-footer input:checked + .toggle-slider:before {
         transform: translateX(20px);
     }
-    
+
     /* Dark mode adjustments */
     @media (prefers-color-scheme: dark) {
         .model-card {
             background: #37474F;
         }
-        
+
         .model-header {
             border-bottom-color: #455A64;
         }
-        
+
         .stat-item {
             background: #455A64;
     }
-    
+
         .model-actions button {
             background: #455A64;
             color: #B0BEC5;
     }
-    
+
         .model-actions button:hover {
             background: var(--primary-color);
             color: white;
         }
-        
+
         .model-footer {
             border-top-color: #455A64;
         }
     }
-    
+
     /* Mobile optimizations */
     @media (max-width: 768px) {
         .models-page {
             padding: 0.5rem;
         }
-        
+
         .model-stats {
             grid-template-columns: 1fr;
         }
-        
+
         .model-actions {
             flex-wrap: wrap;
         }
-        
+
         .model-actions button {
             flex: 1 1 calc(50% - 0.5rem);
         }
@@ -220,7 +220,7 @@
             Add Model
         </button>
     </div>
-    
+
 <div class="row g-4">
         <!-- GPT-4 Model Card -->
         <div class="col-md-6 col-lg-4">
@@ -291,7 +291,7 @@
                 </div>
                 </div>
             </div>
-            
+
         <!-- Claude Model Card -->
         <div class="col-md-6 col-lg-4">
             <div class="model-card">
@@ -361,7 +361,7 @@
                 </div>
                 </div>
             </div>
-            
+
         <!-- Deepseek Model Card -->
         <div class="col-md-6 col-lg-4">
             <div class="model-card">
@@ -433,7 +433,7 @@
         </div>
     </div>
                 </div>
-                
+
 <!-- Add Model Modal -->
 <div class="modal fade" id="addModelModal" tabindex="-1">
     <div class="modal-dialog">
@@ -469,11 +469,11 @@
                         <label class="form-label">Default Parameters</label>
                         <div class="row g-2">
                             <div class="col-6">
-                                <input type="number" class="form-control" name="temperature" 
+                                <input type="number" class="form-control" name="temperature"
                                        placeholder="Temperature" min="0" max="1" step="0.1" value="0.7">
                             </div>
                             <div class="col-6">
-                                <input type="number" class="form-control" name="maxTokens" 
+                                <input type="number" class="form-control" name="maxTokens"
                                        placeholder="Max Tokens" min="1" value="2000">
                             </div>
                         </div>
@@ -545,16 +545,16 @@ function saveNewModel() {
         form.reportValidity();
         return;
     }
-    
+
     const formData = new FormData(form);
     const modelData = Object.fromEntries(formData.entries());
-    
+
     // TODO: Send to backend
     console.log('Adding new model:', modelData);
-    
+
     $('#addModelModal').modal('hide');
     form.reset();
-    
+
     // Show success message
     Swal.fire({
         toast: true,
@@ -574,7 +574,7 @@ function editModel(modelId) {
 function viewModelDetails(modelId) {
     // Load model details
     loadModelDetails(modelId);
-    
+
     // Show modal
     $('#modelDetailsModal').modal('show');
 }
@@ -591,7 +591,7 @@ function deleteModel(modelId) {
         if (result.isConfirmed) {
             // TODO: Send delete request to backend
             console.log('Deleting model:', modelId);
-            
+
             Swal.fire({
                 toast: true,
                 position: 'top-end',
@@ -657,7 +657,7 @@ function loadModelDetails(modelId) {
             { time: '1 hour ago', action: 'Deployment', status: 'Success', duration: '45s' }
         ]
     };
-    
+
     // Update performance chart
     const performanceCtx = document.getElementById('performanceChart').getContext('2d');
     new Chart(performanceCtx, {
@@ -677,7 +677,7 @@ function loadModelDetails(modelId) {
             }
         }
     });
-    
+
     // Update usage chart
     const usageCtx = document.getElementById('usageChart').getContext('2d');
     new Chart(usageCtx, {
@@ -692,7 +692,7 @@ function loadModelDetails(modelId) {
             }
         }
     });
-    
+
     // Update activity log
     const activityLog = document.getElementById('activityLog');
     activityLog.innerHTML = mockData.activity.map(entry => `

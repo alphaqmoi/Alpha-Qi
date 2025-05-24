@@ -2,7 +2,18 @@
 
 This module provides a simple interface to interact with a local Ollama instance. It uses Python's built-in libraries to make HTTP requests, so no external dependencies are required. """
 
-import json import urllib.request import urllib.error import logging from typing import Dict, List, Optional, Any, Union
+import json
+import logging
+import typing
+import urllib.error
+import urllib.request
+
+import Any
+import Dict
+import import
+import List
+import Optional
+import Union
 
 logger = logging.getLogger(name)
 
@@ -68,9 +79,9 @@ def list_models(self) -> List[Dict]:
         logger.error(f"Error listing models: {e}")
         return []
 
-def generate(self, 
-             prompt: str, 
-             model: str = "llama3", 
+def generate(self,
+             prompt: str,
+             model: str = "llama3",
              system_prompt: Optional[str] = None,
              temperature: float = 0.7,
              max_tokens: int = 500,
@@ -111,9 +122,9 @@ def generate(self,
         logger.error(f"Error generating response: {e}")
         return {"error": str(e)}
 
-def chat(self, 
-         messages: List[Dict[str, str]], 
-         model: str = "llama3", 
+def chat(self,
+         messages: List[Dict[str, str]],
+         model: str = "llama3",
          temperature: float = 0.7,
          max_tokens: int = 500) -> Dict:
     """
@@ -178,4 +189,3 @@ response = {
 return response
 
 ollama_client = OllamaAPI()
-

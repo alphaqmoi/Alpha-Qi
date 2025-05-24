@@ -1,4 +1,12 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  integer,
+  boolean,
+  timestamp,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -20,7 +28,9 @@ export const insertUserSchema = createInsertSchema(users).pick({
 // Files table
 export const files = pgTable("files", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
   name: text("name").notNull(),
   path: text("path").notNull(),
   content: text("content"),
@@ -40,7 +50,9 @@ export const insertFileSchema = createInsertSchema(files).pick({
 // Projects table
 export const projects = pgTable("projects", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
   name: text("name").notNull(),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -56,7 +68,9 @@ export const insertProjectSchema = createInsertSchema(projects).pick({
 // Chat messages table
 export const chatMessages = pgTable("chat_messages", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
   projectId: integer("project_id").references(() => projects.id),
   content: text("content").notNull(),
   sender: text("sender").notNull(), // 'user' or 'ai'
@@ -73,8 +87,12 @@ export const insertChatMessageSchema = createInsertSchema(chatMessages).pick({
 // Deployments table
 export const deployments = pgTable("deployments", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  projectId: integer("project_id").notNull().references(() => projects.id),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
+  projectId: integer("project_id")
+    .notNull()
+    .references(() => projects.id),
   target: text("target").notNull(), // 'vercel', 'railway', etc.
   status: text("status").notNull(), // 'pending', 'success', 'failed'
   url: text("url"),

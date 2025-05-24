@@ -41,13 +41,13 @@ def test_api_load():
     num_requests = 1000
     endpoint = '/api/inference'
     test_data = generate_test_batch(100)
-    
+
     # Act
     with pytest.benchmark() as benchmark:
         results = benchmark(
             lambda: [client.post(endpoint, json=data) for data in test_data]
         )
-    
+
     # Assert
     assert results.stats.mean < 0.1  # 100ms per request
     assert results.stats.ops > 100   # 100 requests/second
@@ -62,13 +62,13 @@ def test_model_stress():
     # Arrange
     model = load_test_model()
     large_batch = generate_test_batch(1000)
-    
+
     # Act
     with pytest.benchmark() as benchmark:
         results = benchmark(
             lambda: model.inference(large_batch)
         )
-    
+
     # Assert
     assert results.stats.max < 5.0  # Max 5 seconds
     assert get_memory_usage() < 1024 * 1024 * 1024  # 1GB
@@ -85,7 +85,7 @@ def test_system_endurance():
     duration = 3600  # 1 hour
     interval = 60    # 1 minute
     metrics = []
-    
+
     # Act
     start_time = time.time()
     while time.time() - start_time < duration:
@@ -97,7 +97,7 @@ def test_system_endurance():
             'resources': get_system_metrics()
         })
         time.sleep(interval)
-    
+
     # Assert
     analyze_endurance_metrics(metrics)
 ```
@@ -112,13 +112,13 @@ def test_batch_scalability(batch_size):
     # Arrange
     model = load_test_model()
     batch = generate_test_batch(batch_size)
-    
+
     # Act
     with pytest.benchmark() as benchmark:
         results = benchmark(
             lambda: model.inference(batch)
         )
-    
+
     # Assert
     assert results.stats.mean < 0.1 * batch_size  # Linear scaling
     assert results.stats.ops > 100 / batch_size   # Maintain throughput
@@ -156,16 +156,16 @@ def benchmark_config():
 ```python
 class ResourceMonitor:
     """Monitor system resources during tests."""
-    
+
     def __init__(self):
         self.metrics = []
         self.start_time = None
-    
+
     def start(self):
         """Start monitoring."""
         self.start_time = time.time()
         self.metrics = []
-    
+
     def record(self):
         """Record current metrics."""
         self.metrics.append({
@@ -174,7 +174,7 @@ class ResourceMonitor:
             'memory': psutil.virtual_memory().percent,
             'gpu': get_gpu_usage()
         })
-    
+
     def analyze(self):
         """Analyze recorded metrics."""
         return {
@@ -263,13 +263,13 @@ def assert_scalability(metrics, batch_size):
 @pytest.mark.performance
 class TestAPIPerformance:
     """API performance test suite."""
-    
+
     def test_endpoint_latency(self, client, benchmark):
         """Test endpoint response time."""
         with benchmark() as b:
             response = b(client.get, '/api/health')
         assert b.stats.mean < 0.1
-    
+
     def test_concurrent_requests(self, client, benchmark):
         """Test concurrent request handling."""
         with benchmark() as b:
@@ -277,7 +277,7 @@ class TestAPIPerformance:
                 lambda: [client.get('/api/health') for _ in range(100)]
             )
         assert b.stats.ops > 100
-    
+
     def test_batch_processing(self, client, benchmark):
         """Test batch request processing."""
         batch = generate_test_batch(1000)
@@ -292,21 +292,21 @@ class TestAPIPerformance:
 @pytest.mark.performance
 class TestModelPerformance:
     """Model performance test suite."""
-    
+
     def test_inference_speed(self, model, benchmark):
         """Test model inference speed."""
         input_data = generate_test_input()
         with benchmark() as b:
             result = b(model.inference, input_data)
         assert b.stats.mean < 0.1
-    
+
     def test_batch_inference(self, model, benchmark):
         """Test batch inference performance."""
         batch = generate_test_batch(100)
         with benchmark() as b:
             results = b(model.batch_inference, batch)
         assert b.stats.mean < 1.0
-    
+
     def test_model_loading(self, benchmark):
         """Test model loading performance."""
         with benchmark() as b:
@@ -320,20 +320,20 @@ class TestModelPerformance:
 @pytest.mark.performance
 class TestSystemPerformance:
     """System performance test suite."""
-    
+
     def test_resource_usage(self, monitor):
         """Test system resource usage."""
         with monitor.start():
             run_system_cycle()
         metrics = monitor.analyze()
         assert_performance(metrics, performance_config)
-    
+
     def test_concurrent_users(self, benchmark):
         """Test system under concurrent users."""
         with benchmark() as b:
             results = b(run_concurrent_users, num_users=100)
         assert results.stats.ops > 10
-    
+
     def test_data_processing(self, benchmark):
         """Test data processing performance."""
         data = generate_test_data(1000)
@@ -381,9 +381,9 @@ def analyze_metrics(metrics):
             'max_memory': np.max([m['memory']['percent'] for m in metrics])
         },
         'trends': {
-            'cpu_trend': np.polyfit(range(len(metrics)), 
+            'cpu_trend': np.polyfit(range(len(metrics)),
                                   [m['cpu']['usage'] for m in metrics], 1),
-            'memory_trend': np.polyfit(range(len(metrics)), 
+            'memory_trend': np.polyfit(range(len(metrics)),
                                      [m['memory']['percent'] for m in metrics], 1)
         }
     }
@@ -419,4 +419,4 @@ def generate_report(metrics, analysis):
 3. **Support**
    - Team chat
    - Issue tracker
-   - Code reviews 
+   - Code reviews

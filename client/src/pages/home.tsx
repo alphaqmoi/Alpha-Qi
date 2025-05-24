@@ -12,51 +12,57 @@ import TabPanel from "@/components/TabPanel";
 import { useFiles } from "@/hooks/useFiles";
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"terminal" | "preview" | "deploy">("terminal");
-  const [activePanel, setActivePanel] = useState<"code" | "chat" | "voice" | "agent" | "deploy" | "settings">("chat");
-  
-  const { 
-    files, 
-    activeFile, 
-    openFile, 
+  const [activeTab, setActiveTab] = useState<"terminal" | "preview" | "deploy">(
+    "terminal",
+  );
+  const [activePanel, setActivePanel] = useState<
+    "code" | "chat" | "voice" | "agent" | "deploy" | "settings"
+  >("chat");
+
+  const {
+    files,
+    activeFile,
+    openFile,
     updateFileContent,
     closeFile,
-    openedFiles
+    openedFiles,
   } = useFiles();
 
   return (
     <div className="flex h-screen bg-darker text-light font-sans overflow-hidden">
       <Sidebar activePanel={activePanel} setActivePanel={setActivePanel} />
-      
+
       {activePanel === "code" && (
         <FileExplorer files={files} openFile={openFile} />
       )}
-      
+
       <div className="flex-1 flex flex-col h-full">
         {openedFiles.length > 0 && (
-          <EditorTabs 
+          <EditorTabs
             openedFiles={openedFiles}
             activeFile={activeFile}
             onTabClick={openFile}
             onTabClose={closeFile}
           />
         )}
-        
+
         <div className="flex-1 flex h-full overflow-hidden">
           {activeFile && (
             <div className="flex-1 bg-dark overflow-hidden flex flex-col">
-              <Editor 
+              <Editor
                 file={activeFile}
-                onChange={(content) => updateFileContent(activeFile.id, content)}
+                onChange={(content) =>
+                  updateFileContent(activeFile.id, content)
+                }
               />
             </div>
           )}
-          
+
           <div className="w-96 border-l border-gray-800 flex flex-col">
             <ChatInterface />
-            
+
             <AgentStatus />
-            
+
             <div className="h-1/3 border-t border-gray-800 flex flex-col overflow-hidden">
               <TabPanel
                 activeTab={activeTab}
@@ -64,10 +70,10 @@ export default function Home() {
                 tabs={[
                   { id: "terminal", label: "Terminal" },
                   { id: "preview", label: "Preview" },
-                  { id: "deploy", label: "Deploy" }
+                  { id: "deploy", label: "Deploy" },
                 ]}
               />
-              
+
               {activeTab === "terminal" && <Terminal />}
               {activeTab === "preview" && <ProjectPreview />}
               {activeTab === "deploy" && <DeployPanel />}

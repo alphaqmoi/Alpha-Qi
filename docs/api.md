@@ -404,4 +404,4 @@ console.log(response.completion);
 // System status
 const status = await client.system.status();
 console.log(status.resources);
-``` 
+```

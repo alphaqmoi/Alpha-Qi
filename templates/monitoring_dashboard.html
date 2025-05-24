@@ -31,7 +31,7 @@
 <body>
     <div class="container-fluid p-4">
         <h1 class="mb-4">System Monitor</h1>
-        
+
         <!-- Real-time Metrics -->
         <div class="row mb-4">
             <div class="col-md-3">
@@ -190,7 +190,7 @@
                     document.getElementById('cpu-usage').textContent = `${data.cpu_percent.toFixed(1)}%`;
                     document.getElementById('memory-usage').textContent = `${data.memory_percent.toFixed(1)}%`;
                     document.getElementById('disk-usage').textContent = `${data.disk_usage_percent.toFixed(1)}%`;
-                    document.getElementById('network-usage').textContent = 
+                    document.getElementById('network-usage').textContent =
                         `${((data.network_sent + data.network_recv) / 1024 / 1024).toFixed(2)} MB/s`;
 
                     // Update resource chart
@@ -228,7 +228,7 @@
                 .then(data => {
                     const healthStatus = document.getElementById('health-status');
                     healthStatus.className = 'alert';
-                    
+
                     if (data.status.health_score >= 90) {
                         healthStatus.classList.add('alert-success');
                         healthStatus.textContent = 'System is healthy';
@@ -249,7 +249,7 @@
                 .then(data => {
                     const tbody = document.querySelector('#tasks-table tbody');
                     tbody.innerHTML = '';
-                    
+
                     data.tasks.forEach(task => {
                         const row = tbody.insertRow();
                         row.insertCell(0).textContent = task.name;
@@ -272,4 +272,4 @@
         updateTasks();
     </script>
 </body>
-</html> 
+</html>

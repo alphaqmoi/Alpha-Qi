@@ -7,24 +7,24 @@ This document provides templates and examples for writing different types of tes
 ```python
 def test_<functionality>_<scenario>():
     """Test <functionality> when <scenario>.
-    
+
     Given:
         - <precondition 1>
         - <precondition 2>
-    
+
     When:
         - <action>
-    
+
     Then:
         - <expected result 1>
         - <expected result 2>
     """
     # Arrange
     <setup code>
-    
+
     # Act
     result = <function call>
-    
+
     # Assert
     assert <condition>
 ```
@@ -33,14 +33,14 @@ def test_<functionality>_<scenario>():
 ```python
 def test_validate_model_parameters_invalid_architecture():
     """Test model parameter validation with invalid architecture.
-    
+
     Given:
         - Model parameters with invalid architecture
         - Required parameters present
-    
+
     When:
         - validate_model_parameters is called
-    
+
     Then:
         - Validation should fail
         - Appropriate error should be raised
@@ -50,7 +50,7 @@ def test_validate_model_parameters_invalid_architecture():
         "architecture": "invalid",
         "size": "small"
     }
-    
+
     # Act & Assert
     with pytest.raises(ValueError):
         validate_model_parameters(parameters)
@@ -61,15 +61,15 @@ def test_validate_model_parameters_invalid_architecture():
 ```python
 def test_<component>_<interaction>_<scenario>():
     """Test <component> interaction with <other component> when <scenario>.
-    
+
     Given:
         - <component> is initialized
         - <other component> is configured
         - <precondition>
-    
+
     When:
         - <action> is performed
-    
+
     Then:
         - <expected result>
         - <component state> should be updated
@@ -78,10 +78,10 @@ def test_<component>_<interaction>_<scenario>():
     # Arrange
     <component setup>
     <other component setup>
-    
+
     # Act
     result = <interaction>
-    
+
     # Assert
     assert <component state>
     assert <other component state>
@@ -92,15 +92,15 @@ def test_<component>_<interaction>_<scenario>():
 ```python
 def test_model_training_with_colab_fallback():
     """Test model training with Colab fallback when local resources are insufficient.
-    
+
     Given:
         - Model training configuration
         - Insufficient local resources
         - Colab integration available
-    
+
     When:
         - Training is initiated
-    
+
     Then:
         - Should detect resource constraints
         - Should initiate Colab fallback
@@ -110,10 +110,10 @@ def test_model_training_with_colab_fallback():
     # Arrange
     model_config = {...}
     mock_local_resources.return_value = {"should_offload": True}
-    
+
     # Act
     result = train_model(model_config)
-    
+
     # Assert
     assert mock_colab_manager.connect_to_colab.called
     assert result["status"] == "completed"
@@ -125,15 +125,15 @@ def test_model_training_with_colab_fallback():
 ```python
 def test_<endpoint>_<method>_<scenario>():
     """Test <endpoint> <method> when <scenario>.
-    
+
     Given:
         - <authentication state>
         - <request data>
         - <precondition>
-    
+
     When:
         - <method> request is sent to <endpoint>
-    
+
     Then:
         - Response status should be <expected status>
         - Response should contain <expected data>
@@ -142,10 +142,10 @@ def test_<endpoint>_<method>_<scenario>():
     # Arrange
     <auth setup>
     <request data setup>
-    
+
     # Act
     response = client.<method>(<endpoint>, json=<data>)
-    
+
     # Assert
     assert response.status_code == <expected status>
     assert <response data check>
@@ -156,14 +156,14 @@ def test_<endpoint>_<method>_<scenario>():
 ```python
 def test_create_model_unauthorized():
     """Test model creation endpoint when user is not authenticated.
-    
+
     Given:
         - No authentication token
         - Valid model data
-    
+
     When:
         - POST request is sent to /api/models
-    
+
     Then:
         - Should return 401 Unauthorized
         - Should not create model in database
@@ -173,10 +173,10 @@ def test_create_model_unauthorized():
         "name": "test-model",
         "description": "Test model"
     }
-    
+
     # Act
     response = client.post("/api/models", json=model_data)
-    
+
     # Assert
     assert response.status_code == 401
     assert Model.query.filter_by(name="test-model").first() is None
@@ -187,14 +187,14 @@ def test_create_model_unauthorized():
 ```python
 def test_<operation>_performance():
     """Test performance of <operation>.
-    
+
     Given:
         - <test data>
         - <performance requirements>
-    
+
     When:
         - <operation> is performed
-    
+
     Then:
         - Should complete within <time limit>
         - Should use less than <memory limit>
@@ -202,11 +202,11 @@ def test_<operation>_performance():
     """
     # Arrange
     <test data setup>
-    
+
     # Act
     with pytest.benchmark() as benchmark:
         result = benchmark(<operation>)
-    
+
     # Assert
     assert result.stats.mean < <time limit>
     assert result.stats.max < <memory limit>
@@ -217,15 +217,15 @@ def test_<operation>_performance():
 ```python
 def test_model_inference_performance():
     """Test model inference performance with batch processing.
-    
+
     Given:
         - Loaded model
         - Batch of input data
         - Performance requirements
-    
+
     When:
         - Batch inference is performed
-    
+
     Then:
         - Should process batch within 100ms
         - Should use less than 1GB memory
@@ -234,11 +234,11 @@ def test_model_inference_performance():
     # Arrange
     model = load_test_model()
     batch = generate_test_batch(100)
-    
+
     # Act
     with pytest.benchmark() as benchmark:
         results = benchmark(model.inference, batch)
-    
+
     # Assert
     assert results.stats.mean < 0.1  # 100ms
     assert results.stats.max < 1024 * 1024 * 1024  # 1GB
@@ -250,14 +250,14 @@ def test_model_inference_performance():
 ```python
 def test_<component>_<security_aspect>():
     """Test <component> for <security aspect>.
-    
+
     Given:
         - <component> is configured
         - <attack vector>
-    
+
     When:
         - <attack> is attempted
-    
+
     Then:
         - Should <prevent/detect> <attack>
         - Should <log/alert> <security event>
@@ -266,11 +266,11 @@ def test_<component>_<security_aspect>():
     # Arrange
     <component setup>
     <attack setup>
-    
+
     # Act
     with pytest.raises(<security exception>):
         <attack attempt>
-    
+
     # Assert
     assert <security check>
     assert <logging check>
@@ -281,14 +281,14 @@ def test_<component>_<security_aspect>():
 ```python
 def test_auth_token_tampering():
     """Test authentication system against token tampering.
-    
+
     Given:
         - Valid authentication token
         - Tampered token payload
-    
+
     When:
         - Tampered token is used for authentication
-    
+
     Then:
         - Should reject tampered token
         - Should log security event
@@ -297,11 +297,11 @@ def test_auth_token_tampering():
     # Arrange
     valid_token = generate_auth_token()
     tampered_token = tamper_token(valid_token)
-    
+
     # Act & Assert
     with pytest.raises(SecurityException):
         authenticate_user(tampered_token)
-    
+
     assert security_logger.events[-1].type == "token_tampering"
     assert not is_authenticated(tampered_token)
 ```
@@ -343,4 +343,4 @@ def test_auth_token_tampering():
    - Test authorization
    - Test input validation
    - Test error handling
-   - Test logging 
+   - Test logging

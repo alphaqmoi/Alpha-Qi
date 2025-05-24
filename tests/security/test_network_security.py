@@ -6,33 +6,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -85,10 +86,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -103,25 +104,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -130,20 +131,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -157,7 +158,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -205,17 +206,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -236,20 +237,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -265,17 +266,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -286,11 +287,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -316,7 +317,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -325,7 +326,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -345,29 +346,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -378,12 +379,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -394,7 +395,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -407,7 +408,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -417,16 +418,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -434,26 +435,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -476,29 +477,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -506,10 +507,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -518,7 +519,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -533,7 +534,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -544,11 +545,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -561,7 +562,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -576,35 +577,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -613,7 +614,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -626,7 +627,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -637,7 +638,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -648,10 +649,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -661,7 +662,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -676,29 +677,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -710,7 +711,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -719,7 +720,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -750,12 +751,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -779,11 +780,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -791,10 +792,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -818,15 +819,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -846,7 +847,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -857,24 +858,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -882,7 +883,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -891,7 +892,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -919,12 +920,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -944,12 +945,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -968,7 +969,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -978,29 +979,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -1020,10 +1021,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -1069,7 +1070,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -1083,7 +1084,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -1091,7 +1092,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -1103,13 +1104,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -1117,7 +1118,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -1157,46 +1158,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -1205,7 +1206,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -1214,7 +1215,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -1228,7 +1229,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -1237,11 +1238,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -1252,7 +1253,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -1261,26 +1262,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -1290,13 +1291,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -1304,7 +1305,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -1334,7 +1335,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -1342,45 +1343,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -1388,10 +1389,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -1421,7 +1422,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -1443,10 +1444,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -1455,10 +1456,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -1469,32 +1470,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -1503,20 +1504,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -1524,7 +1525,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -1552,41 +1553,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -1594,13 +1595,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -1608,52 +1609,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -1661,7 +1662,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -1669,7 +1670,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -1678,10 +1679,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -1691,7 +1692,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -1699,12 +1700,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -1714,7 +1715,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -1723,12 +1724,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -1739,19 +1740,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -1759,7 +1760,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -1768,7 +1769,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -1777,11 +1778,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -1794,21 +1795,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -1816,14 +1817,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -1832,59 +1833,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -1893,7 +1894,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -1902,22 +1903,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -1925,21 +1926,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -1948,7 +1949,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -1957,7 +1958,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -1979,15 +1980,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -1996,53 +1997,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -2050,7 +2051,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -2059,7 +2060,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -2096,18 +2097,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -2115,14 +2116,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -2131,7 +2132,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -2140,7 +2141,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -2174,18 +2175,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -2193,27 +2194,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -2224,7 +2225,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -2233,7 +2234,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -2255,54 +2256,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -2378,7 +2379,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This test suite verifies cloud security features including:
     - Cloud infrastructure security
     - Cloud service security
@@ -2388,7 +2389,7 @@ class TestCloudSecurity:
 
     def test_cloud_infrastructure_security(self, security_test_generator, mock_security_services):
         """Test cloud infrastructure security controls.
-        
+
         This test verifies:
         - Infrastructure hardening
         - Network security
@@ -2468,7 +2469,7 @@ class TestCloudSecurity:
 
     def test_cloud_service_security(self, security_test_generator, mock_security_services):
         """Test cloud service security controls.
-        
+
         This test verifies:
         - Service authentication
         - Service authorization
@@ -2543,7 +2544,7 @@ class TestCloudSecurity:
 
     def test_cloud_data_protection(self, security_test_generator, mock_security_services):
         """Test cloud data protection controls.
-        
+
         This test verifies:
         - Data classification
         - Data encryption
@@ -2625,7 +2626,7 @@ class TestCloudSecurity:
 @pytest.mark.colab
 class TestColabSecurity:
     """Test Colab security features and controls.
-    
+
     This test suite verifies Colab security features including:
     - Colab authentication
     - Colab resource isolation
@@ -2636,7 +2637,7 @@ class TestColabSecurity:
 
     def test_colab_authentication(self, colab_test_generator, mock_colab_services):
         """Test Colab authentication controls.
-        
+
         This test verifies:
         - OAuth2 authentication
         - Credential management
@@ -2767,7 +2768,7 @@ class TestColabSecurity:
 
     def test_colab_resource_isolation(self, colab_test_generator, mock_colab_services):
         """Test Colab resource isolation controls.
-        
+
         This test verifies:
         - Runtime isolation
         - Memory isolation
@@ -2900,7 +2901,7 @@ class TestColabSecurity:
 
     def test_colab_data_protection(self, colab_test_generator, mock_colab_services):
         """Test Colab data protection controls.
-        
+
         This test verifies:
         - Data encryption
         - Data access control
@@ -3035,7 +3036,7 @@ class TestColabSecurity:
 
     def test_colab_runtime_security(self, colab_test_generator, mock_colab_services):
         """Test Colab runtime security controls.
-        
+
         This test verifies:
         - Runtime environment security
         - Package security
@@ -3153,33 +3154,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -3232,10 +3234,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -3250,25 +3252,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -3277,20 +3279,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -3304,7 +3306,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -3352,17 +3354,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -3383,20 +3385,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -3412,17 +3414,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -3433,11 +3435,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -3463,7 +3465,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -3472,7 +3474,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -3492,29 +3494,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -3525,12 +3527,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -3541,7 +3543,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -3554,7 +3556,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -3564,16 +3566,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -3581,26 +3583,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -3623,29 +3625,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -3653,10 +3655,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -3665,7 +3667,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -3680,7 +3682,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -3691,11 +3693,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -3708,7 +3710,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -3723,35 +3725,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -3760,7 +3762,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -3773,7 +3775,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -3784,7 +3786,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -3795,10 +3797,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -3808,7 +3810,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -3823,29 +3825,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -3857,7 +3859,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -3866,7 +3868,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -3897,12 +3899,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -3926,11 +3928,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -3938,10 +3940,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -3965,15 +3967,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -3993,7 +3995,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -4004,24 +4006,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -4029,7 +4031,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -4038,7 +4040,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -4066,12 +4068,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -4091,12 +4093,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -4115,7 +4117,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -4125,29 +4127,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -4167,10 +4169,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -4216,7 +4218,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -4230,7 +4232,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -4238,7 +4240,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -4250,13 +4252,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -4264,7 +4266,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -4304,46 +4306,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -4352,7 +4354,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -4361,7 +4363,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -4375,7 +4377,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -4384,11 +4386,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -4399,7 +4401,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -4408,26 +4410,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -4437,13 +4439,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -4451,7 +4453,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -4481,7 +4483,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -4489,45 +4491,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -4535,10 +4537,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -4568,7 +4570,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -4590,10 +4592,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -4602,10 +4604,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -4616,32 +4618,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -4650,20 +4652,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -4671,7 +4673,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -4699,41 +4701,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -4741,13 +4743,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -4755,52 +4757,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -4808,7 +4810,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -4816,7 +4818,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -4825,10 +4827,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -4838,7 +4840,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -4846,12 +4848,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -4861,7 +4863,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -4870,12 +4872,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -4886,19 +4888,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -4906,7 +4908,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -4915,7 +4917,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -4924,11 +4926,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -4941,21 +4943,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -4963,14 +4965,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -4979,59 +4981,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -5040,7 +5042,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -5049,22 +5051,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -5072,21 +5074,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -5095,7 +5097,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -5104,7 +5106,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -5126,15 +5128,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -5143,53 +5145,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -5197,7 +5199,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -5206,7 +5208,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -5243,18 +5245,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -5262,14 +5264,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -5278,7 +5280,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -5287,7 +5289,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -5321,18 +5323,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -5340,27 +5342,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -5371,7 +5373,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -5380,7 +5382,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -5402,54 +5404,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -5525,7 +5527,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This module contains tests for cloud security features including container security,
     serverless security, cloud storage security, and cloud identity security.
     It verifies the implementation of cloud security controls and their effectiveness
@@ -5534,7 +5536,7 @@ class TestCloudSecurity:
 
     def test_container_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test container security features.
-        
+
         This test verifies:
         - Container image security
         - Container runtime security
@@ -5543,7 +5545,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test container image security
         image_tests = [
             {
@@ -5562,13 +5564,13 @@ class TestCloudSecurity:
                 'expected_compliant': True
             }
         ]
-        
+
         for test in image_tests:
             result = services['container'].validate_image_security(test)
             assert result['vulnerabilities'] == test['expected_vulnerabilities']
             assert result['integrity'] == test['expected_integrity']
             assert result['compliant'] == test['expected_compliant']
-        
+
         # Test container runtime security
         runtime_tests = [
             {
@@ -5587,13 +5589,13 @@ class TestCloudSecurity:
                 'expected_patched': True
             }
         ]
-        
+
         for test in runtime_tests:
             result = services['container'].validate_runtime_security(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['hardened'] == test['expected_hardened']
             assert result['patched'] == test['expected_patched']
-        
+
         # Test network isolation
         network_tests = [
             {
@@ -5607,12 +5609,12 @@ class TestCloudSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in network_tests:
             result = services['container'].validate_network_isolation(test)
             assert result['segmented'] == test['expected_segmented']
             assert result['allowed'] == test['expected_allowed']
-        
+
         # Test resource limits
         resource_tests = [
             {
@@ -5631,14 +5633,14 @@ class TestCloudSecurity:
                 'expected_limited': True
             }
         ]
-        
+
         for test in resource_tests:
             result = services['container'].validate_resource_limits(test)
             assert result['limited'] == test['expected_limited']
 
     def test_serverless_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test serverless security features.
-        
+
         This test verifies:
         - Function security
         - Event security
@@ -5647,7 +5649,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test function security
         function_tests = [
             {
@@ -5666,13 +5668,13 @@ class TestCloudSecurity:
                 'expected_compliant': True
             }
         ]
-        
+
         for test in function_tests:
             result = services['serverless'].validate_function_security(test)
             assert result['authorized'] == test['expected_authorized']
             assert result['integrity'] == test['expected_integrity']
             assert result['compliant'] == test['expected_compliant']
-        
+
         # Test event security
         event_tests = [
             {
@@ -5686,12 +5688,12 @@ class TestCloudSecurity:
                 'expected_authorized': True
             }
         ]
-        
+
         for test in event_tests:
             result = services['serverless'].validate_event_security(test)
             assert result['validated'] == test['expected_validated']
             assert result['authorized'] == test['expected_authorized']
-        
+
         # Test resource isolation
         isolation_tests = [
             {
@@ -5705,12 +5707,12 @@ class TestCloudSecurity:
                 'expected_limited': True
             }
         ]
-        
+
         for test in isolation_tests:
             result = services['serverless'].validate_resource_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['limited'] == test['expected_limited']
-        
+
         # Test data protection
         data_tests = [
             {
@@ -5734,7 +5736,7 @@ class TestCloudSecurity:
                 'expected_retained': True
             }
         ]
-        
+
         for test in data_tests:
             result = services['serverless'].validate_data_protection(test)
             assert result['encrypted'] == test['expected_encrypted']
@@ -5744,7 +5746,7 @@ class TestCloudSecurity:
 
     def test_cloud_storage_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test cloud storage security features.
-        
+
         This test verifies:
         - Encryption
         - Access control
@@ -5753,7 +5755,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test encryption
         encryption_tests = [
             {
@@ -5767,12 +5769,12 @@ class TestCloudSecurity:
                 'expected_managed': True
             }
         ]
-        
+
         for test in encryption_tests:
             result = services['storage'].validate_encryption(test)
             assert result['encrypted'] == test['expected_encrypted']
             assert result['managed'] == test['expected_managed']
-        
+
         # Test access control
         access_tests = [
             {
@@ -5786,12 +5788,12 @@ class TestCloudSecurity:
                 'expected_managed': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['storage'].validate_access_control(test)
             assert result['allowed'] == test['expected_allowed']
             assert result['managed'] == test['expected_managed']
-        
+
         # Test lifecycle management
         lifecycle_tests = [
             {
@@ -5805,12 +5807,12 @@ class TestCloudSecurity:
                 'expected_deleted': True
             }
         ]
-        
+
         for test in lifecycle_tests:
             result = services['storage'].validate_lifecycle_management(test)
             assert result['retained'] == test['expected_retained']
             assert result['deleted'] == test['expected_deleted']
-        
+
         # Test backup
         backup_tests = [
             {
@@ -5824,7 +5826,7 @@ class TestCloudSecurity:
                 'expected_verified': True
             }
         ]
-        
+
         for test in backup_tests:
             result = services['storage'].validate_backup(test)
             assert result['backed_up'] == test['expected_backed_up']
@@ -5832,7 +5834,7 @@ class TestCloudSecurity:
 
     def test_cloud_identity_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test cloud identity security features.
-        
+
         This test verifies:
         - Identity management
         - Access control
@@ -5841,7 +5843,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test identity management
         identity_tests = [
             {
@@ -5855,12 +5857,12 @@ class TestCloudSecurity:
                 'expected_deprovisioned': True
             }
         ]
-        
+
         for test in identity_tests:
             result = services['identity'].validate_identity_management(test)
             assert result['provisioned'] == test['expected_provisioned']
             assert result['deprovisioned'] == test['expected_deprovisioned']
-        
+
         # Test access control
         access_tests = [
             {
@@ -5876,12 +5878,12 @@ class TestCloudSecurity:
                 'expected_revoked': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['identity'].validate_access_control(test)
             assert result['granted'] == test['expected_granted']
             assert result['revoked'] == test['expected_revoked']
-        
+
         # Test authentication
         auth_tests = [
             {
@@ -5897,11 +5899,11 @@ class TestCloudSecurity:
                 'expected_authenticated': True
             }
         ]
-        
+
         for test in auth_tests:
             result = services['identity'].validate_authentication(test)
             assert result['authenticated'] == test['expected_authenticated']
-        
+
         # Test authorization
         authz_tests = [
             {
@@ -5917,7 +5919,7 @@ class TestCloudSecurity:
                 'expected_granted': True
             }
         ]
-        
+
         for test in authz_tests:
             result = services['identity'].validate_authorization(test)
             assert result['assigned'] == test['expected_assigned']
@@ -5927,7 +5929,7 @@ class TestCloudSecurity:
 @pytest.mark.colab
 class TestColabSecurity:
     """Test Colab security features and controls.
-    
+
     This module contains tests for Colab security features including authentication,
     resource isolation, data protection, runtime security, and monitoring.
     It verifies the implementation of Colab security controls and their effectiveness
@@ -5936,7 +5938,7 @@ class TestColabSecurity:
 
     def test_colab_authentication(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab authentication features.
-        
+
         This test verifies:
         - OAuth2 authentication
         - Credential management
@@ -5946,7 +5948,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test OAuth2 authentication
         oauth_tests = [
             {
@@ -5960,12 +5962,12 @@ class TestColabSecurity:
                 'expected_token': 'test_token'
             }
         ]
-        
+
         for test in oauth_tests:
             result = services['auth'].validate_oauth_authentication(test)
             assert result['authorized'] == test['expected_authorized']
             assert result['token'] == test['expected_token']
-        
+
         # Test credential management
         credential_tests = [
             {
@@ -5979,12 +5981,12 @@ class TestColabSecurity:
                 'expected_rotated': True
             }
         ]
-        
+
         for test in credential_tests:
             result = services['auth'].validate_credential_management(test)
             assert result['stored'] == test['expected_stored']
             assert result['rotated'] == test['expected_rotated']
-        
+
         # Test token validation
         token_tests = [
             {
@@ -5998,12 +6000,12 @@ class TestColabSecurity:
                 'expected_expired': False
             }
         ]
-        
+
         for test in token_tests:
             result = services['auth'].validate_token(test)
             assert result['valid'] == test['expected_valid']
             assert result['expired'] == test['expected_expired']
-        
+
         # Test session management
         session_tests = [
             {
@@ -6017,12 +6019,12 @@ class TestColabSecurity:
                 'expected_terminated': True
             }
         ]
-        
+
         for test in session_tests:
             result = services['auth'].validate_session_management(test)
             assert result['session'] == test['expected_session']
             assert result['terminated'] == test['expected_terminated']
-        
+
         # Test access token refresh
         refresh_tests = [
             {
@@ -6036,7 +6038,7 @@ class TestColabSecurity:
                 'expected_revoked': True
             }
         ]
-        
+
         for test in refresh_tests:
             result = services['auth'].validate_token_refresh(test)
             assert result['refreshed'] == test['expected_refreshed']
@@ -6044,7 +6046,7 @@ class TestColabSecurity:
 
     def test_colab_resource_isolation(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab resource isolation features.
-        
+
         This test verifies:
         - Runtime isolation
         - Memory isolation
@@ -6054,7 +6056,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test runtime isolation
         runtime_tests = [
             {
@@ -6068,12 +6070,12 @@ class TestColabSecurity:
                 'expected_hardened': True
             }
         ]
-        
+
         for test in runtime_tests:
             result = services['isolation'].validate_runtime_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['hardened'] == test['expected_hardened']
-        
+
         # Test memory isolation
         memory_tests = [
             {
@@ -6087,12 +6089,12 @@ class TestColabSecurity:
                 'expected_protected': True
             }
         ]
-        
+
         for test in memory_tests:
             result = services['isolation'].validate_memory_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['protected'] == test['expected_protected']
-        
+
         # Test GPU isolation
         gpu_tests = [
             {
@@ -6106,12 +6108,12 @@ class TestColabSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in gpu_tests:
             result = services['isolation'].validate_gpu_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['allowed'] == test['expected_allowed']
-        
+
         # Test storage isolation
         storage_tests = [
             {
@@ -6125,12 +6127,12 @@ class TestColabSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in storage_tests:
             result = services['isolation'].validate_storage_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['allowed'] == test['expected_allowed']
-        
+
         # Test network isolation
         network_tests = [
             {
@@ -6144,7 +6146,7 @@ class TestColabSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in network_tests:
             result = services['isolation'].validate_network_isolation(test)
             assert result['isolated'] == test['expected_isolated']
@@ -6152,7 +6154,7 @@ class TestColabSecurity:
 
     def test_colab_data_protection(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab data protection features.
-        
+
         This test verifies:
         - Data encryption
         - Data access control
@@ -6162,7 +6164,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test data encryption
         encryption_tests = [
             {
@@ -6176,12 +6178,12 @@ class TestColabSecurity:
                 'expected_managed': True
             }
         ]
-        
+
         for test in encryption_tests:
             result = services['data'].validate_data_encryption(test)
             assert result['encrypted'] == test['expected_encrypted']
             assert result['managed'] == test['expected_managed']
-        
+
         # Test data access control
         access_tests = [
             {
@@ -6196,12 +6198,12 @@ class TestColabSecurity:
                 'expected_authorized': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['data'].validate_data_access_control(test)
             assert result['allowed'] == test['expected_allowed']
             assert result['authorized'] == test['expected_authorized']
-        
+
         # Test data backup
         backup_tests = [
             {
@@ -6215,12 +6217,12 @@ class TestColabSecurity:
                 'expected_verified': True
             }
         ]
-        
+
         for test in backup_tests:
             result = services['data'].validate_data_backup(test)
             assert result['backed_up'] == test['expected_backed_up']
             assert result['verified'] == test['expected_verified']
-        
+
         # Test data retention
         retention_tests = [
             {
@@ -6234,12 +6236,12 @@ class TestColabSecurity:
                 'expected_deleted': True
             }
         ]
-        
+
         for test in retention_tests:
             result = services['data'].validate_data_retention(test)
             assert result['retained'] == test['expected_retained']
             assert result['deleted'] == test['expected_deleted']
-        
+
         # Test data sanitization
         sanitization_tests = [
             {
@@ -6253,7 +6255,7 @@ class TestColabSecurity:
                 'expected_cleansed': True
             }
         ]
-        
+
         for test in sanitization_tests:
             result = services['data'].validate_data_sanitization(test)
             assert result['sanitized'] == test['expected_sanitized']
@@ -6261,7 +6263,7 @@ class TestColabSecurity:
 
     def test_colab_runtime_security(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab runtime security features.
-        
+
         This test verifies:
         - Runtime environment security
         - Package security
@@ -6271,7 +6273,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test runtime environment security
         environment_tests = [
             {
@@ -6285,12 +6287,12 @@ class TestColabSecurity:
                 'expected_hardened': True
             }
         ]
-        
+
         for test in environment_tests:
             result = services['runtime'].validate_environment_security(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['hardened'] == test['expected_hardened']
-        
+
         # Test package security
         package_tests = [
             {
@@ -6304,12 +6306,12 @@ class TestColabSecurity:
                 'expected_vulnerabilities': 0
             }
         ]
-        
+
         for test in package_tests:
             result = services['runtime'].validate_package_security(test)
             assert result['integrity'] == test['expected_integrity']
             assert result['vulnerabilities'] == test['expected_vulnerabilities']
-        
+
         # Test resource limits
         resource_tests = [
             {
@@ -6328,11 +6330,11 @@ class TestColabSecurity:
                 'expected_limited': True
             }
         ]
-        
+
         for test in resource_tests:
             result = services['runtime'].validate_resource_limits(test)
             assert result['limited'] == test['expected_limited']
-        
+
         # Test process isolation
         process_tests = [
             {
@@ -6346,12 +6348,12 @@ class TestColabSecurity:
                 'expected_monitored': True
             }
         ]
-        
+
         for test in process_tests:
             result = services['runtime'].validate_process_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['monitored'] == test['expected_monitored']
-        
+
         # Test system hardening
         hardening_tests = [
             {
@@ -6365,7 +6367,7 @@ class TestColabSecurity:
                 'expected_patched': True
             }
         ]
-        
+
         for test in hardening_tests:
             result = services['runtime'].validate_system_hardening(test)
             assert result['hardened'] == test['expected_hardened']
@@ -6373,7 +6375,7 @@ class TestColabSecurity:
 
     def test_colab_monitoring_logging(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab monitoring and logging features.
-        
+
         This test verifies:
         - Resource monitoring
         - Security monitoring
@@ -6383,7 +6385,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test resource monitoring
         resource_tests = [
             {
@@ -6397,12 +6399,12 @@ class TestColabSecurity:
                 'expected_capacity': 1024
             }
         ]
-        
+
         for test in resource_tests:
             result = services['monitoring'].validate_resource_monitoring(test)
             assert result['utilization'] == test['expected_utilization']
             assert result['capacity'] == test['expected_capacity']
-        
+
         # Test security monitoring
         security_tests = [
             {
@@ -6414,12 +6416,12 @@ class TestColabSecurity:
                 'expected_anomalies': 0
             }
         ]
-        
+
         for test in security_tests:
             result = services['monitoring'].validate_security_monitoring(test)
             assert result['intrusions'] == test['expected_intrusions']
             assert result['anomalies'] == test['expected_anomalies']
-        
+
         # Test activity logging
         activity_tests = [
             {
@@ -6433,12 +6435,12 @@ class TestColabSecurity:
                 'expected_audited': True
             }
         ]
-        
+
         for test in activity_tests:
             result = services['logging'].validate_activity_logging(test)
             assert result['logged'] == test['expected_logged']
             assert result['audited'] == test['expected_audited']
-        
+
         # Test audit logging
         audit_tests = [
             {
@@ -6452,12 +6454,12 @@ class TestColabSecurity:
                 'expected_retained': True
             }
         ]
-        
+
         for test in audit_tests:
             result = services['logging'].validate_audit_logging(test)
             assert result['logged'] == test['expected_logged']
             assert result['retained'] == test['expected_retained']
-        
+
         # Test alert management
         alert_tests = [
             {
@@ -6471,7 +6473,7 @@ class TestColabSecurity:
                 'expected_escalated': True
             }
         ]
-        
+
         for test in alert_tests:
             result = services['monitoring'].validate_alert_management(test)
             assert result['generated'] == test['expected_generated']
@@ -6485,33 +6487,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -6564,10 +6567,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -6582,25 +6585,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -6609,20 +6612,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -6636,7 +6639,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -6684,17 +6687,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -6715,20 +6718,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -6744,17 +6747,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -6765,11 +6768,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -6795,7 +6798,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -6804,7 +6807,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -6824,29 +6827,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -6857,12 +6860,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -6873,7 +6876,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -6886,7 +6889,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -6896,16 +6899,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -6913,26 +6916,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -6955,29 +6958,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -6985,10 +6988,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -6997,7 +7000,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -7012,7 +7015,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -7023,11 +7026,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -7040,7 +7043,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -7055,35 +7058,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -7092,7 +7095,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -7105,7 +7108,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -7116,7 +7119,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -7127,10 +7130,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -7140,7 +7143,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -7155,29 +7158,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -7189,7 +7192,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -7198,7 +7201,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -7229,12 +7232,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -7258,11 +7261,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -7270,10 +7273,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -7297,15 +7300,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -7325,7 +7328,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -7336,24 +7339,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -7361,7 +7364,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -7370,7 +7373,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -7398,12 +7401,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -7423,12 +7426,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -7447,7 +7450,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -7457,29 +7460,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -7499,10 +7502,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -7548,7 +7551,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -7562,7 +7565,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -7570,7 +7573,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -7579,10 +7582,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -7592,7 +7595,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -7600,12 +7603,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -7615,7 +7618,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -7624,12 +7627,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -7640,19 +7643,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -7660,7 +7663,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -7669,7 +7672,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -7678,11 +7681,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -7695,21 +7698,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -7717,14 +7720,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -7733,59 +7736,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -7794,7 +7797,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -7803,22 +7806,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -7826,21 +7829,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -7849,7 +7852,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -7858,7 +7861,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -7880,15 +7883,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -7897,53 +7900,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -7951,7 +7954,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -7960,7 +7963,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -7997,18 +8000,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -8016,14 +8019,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -8032,7 +8035,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -8041,7 +8044,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -8075,18 +8078,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -8094,27 +8097,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -8125,7 +8128,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -8134,7 +8137,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -8156,54 +8159,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -8279,7 +8282,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This test suite verifies cloud security features including:
     - Cloud infrastructure security
     - Cloud service security
@@ -8289,7 +8292,7 @@ class TestCloudSecurity:
 
     def test_cloud_infrastructure_security(self, security_test_generator, mock_security_services):
         """Test cloud infrastructure security controls.
-        
+
         This test verifies:
         - Infrastructure hardening
         - Network security
@@ -8369,7 +8372,7 @@ class TestCloudSecurity:
 
     def test_cloud_service_security(self, security_test_generator, mock_security_services):
         """Test cloud service security controls.
-        
+
         This test verifies:
         - Service authentication
         - Service authorization
@@ -8444,7 +8447,7 @@ class TestCloudSecurity:
 
     def test_cloud_data_protection(self, security_test_generator, mock_security_services):
         """Test cloud data protection controls.
-        
+
         This test verifies:
         - Data classification
         - Data encryption
@@ -8526,7 +8529,7 @@ class TestCloudSecurity:
 @pytest.mark.colab
 class TestColabSecurity:
     """Test Colab security features and controls.
-    
+
     This test suite verifies Colab security features including:
     - Colab authentication
     - Colab resource isolation
@@ -8537,7 +8540,7 @@ class TestColabSecurity:
 
     def test_colab_authentication(self, colab_test_generator, mock_colab_services):
         """Test Colab authentication controls.
-        
+
         This test verifies:
         - OAuth2 authentication
         - Credential management
@@ -8668,7 +8671,7 @@ class TestColabSecurity:
 
     def test_colab_resource_isolation(self, colab_test_generator, mock_colab_services):
         """Test Colab resource isolation controls.
-        
+
         This test verifies:
         - Runtime isolation
         - Memory isolation
@@ -8801,7 +8804,7 @@ class TestColabSecurity:
 
     def test_colab_data_protection(self, colab_test_generator, mock_colab_services):
         """Test Colab data protection controls.
-        
+
         This test verifies:
         - Data encryption
         - Data access control
@@ -8936,7 +8939,7 @@ class TestColabSecurity:
 
     def test_colab_runtime_security(self, colab_test_generator, mock_colab_services):
         """Test Colab runtime security controls.
-        
+
         This test verifies:
         - Runtime environment security
         - Package security
@@ -9054,33 +9057,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -9133,10 +9137,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -9151,25 +9155,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -9178,20 +9182,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -9205,7 +9209,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -9253,17 +9257,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -9284,20 +9288,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -9313,17 +9317,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -9334,11 +9338,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -9364,7 +9368,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -9373,7 +9377,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -9393,29 +9397,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -9426,12 +9430,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -9442,7 +9446,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -9455,7 +9459,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -9465,16 +9469,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -9482,26 +9486,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -9524,29 +9528,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -9554,10 +9558,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -9566,7 +9570,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -9581,7 +9585,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -9592,11 +9596,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -9609,7 +9613,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -9624,35 +9628,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -9661,7 +9665,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -9674,7 +9678,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -9685,7 +9689,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -9696,10 +9700,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -9709,7 +9713,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -9724,29 +9728,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -9758,7 +9762,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -9767,7 +9771,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -9798,12 +9802,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -9827,11 +9831,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -9839,10 +9843,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -9866,15 +9870,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -9894,7 +9898,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -9905,24 +9909,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -9930,7 +9934,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -9939,7 +9943,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -9967,12 +9971,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -9992,12 +9996,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -10016,7 +10020,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -10026,29 +10030,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -10068,10 +10072,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -10117,7 +10121,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -10131,7 +10135,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -10139,7 +10143,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -10151,13 +10155,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -10165,7 +10169,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -10205,46 +10209,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -10253,7 +10257,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -10262,7 +10266,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -10276,7 +10280,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -10285,11 +10289,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -10300,7 +10304,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -10309,26 +10313,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -10338,13 +10342,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -10352,7 +10356,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -10382,7 +10386,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -10390,45 +10394,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -10436,10 +10440,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -10469,7 +10473,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -10491,10 +10495,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -10503,10 +10507,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -10517,32 +10521,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -10551,20 +10555,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -10572,7 +10576,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -10600,41 +10604,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -10642,13 +10646,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -10656,52 +10660,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -10709,7 +10713,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -10717,7 +10721,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -10726,10 +10730,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -10739,7 +10743,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -10747,12 +10751,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -10762,7 +10766,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -10771,12 +10775,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -10787,19 +10791,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -10807,7 +10811,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -10816,7 +10820,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -10825,11 +10829,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -10842,21 +10846,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -10864,14 +10868,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -10880,59 +10884,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -10941,7 +10945,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -10950,22 +10954,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -10973,21 +10977,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -10996,7 +11000,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -11005,7 +11009,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -11027,15 +11031,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -11044,53 +11048,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -11098,7 +11102,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -11107,7 +11111,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -11144,18 +11148,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -11163,14 +11167,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -11179,7 +11183,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -11188,7 +11192,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -11222,18 +11226,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -11241,27 +11245,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -11272,7 +11276,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -11281,7 +11285,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -11303,54 +11307,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -11426,7 +11430,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This module contains tests for cloud security features including container
     security, serverless security, cloud storage security, and cloud identity
     security. It verifies the implementation of cloud security controls and
@@ -11442,33 +11446,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -11521,10 +11526,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -11539,25 +11544,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -11566,20 +11571,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -11593,7 +11598,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -11641,17 +11646,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -11672,20 +11677,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -11701,17 +11706,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -11722,11 +11727,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -11752,7 +11757,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -11761,7 +11766,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -11781,29 +11786,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -11814,12 +11819,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -11830,7 +11835,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -11843,7 +11848,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -11853,16 +11858,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -11870,26 +11875,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -11912,29 +11917,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -11942,10 +11947,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -11954,7 +11959,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -11969,7 +11974,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -11980,11 +11985,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -11997,7 +12002,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -12012,35 +12017,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -12049,7 +12054,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -12062,7 +12067,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -12073,7 +12078,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -12084,10 +12089,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -12097,7 +12102,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -12112,29 +12117,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -12146,7 +12151,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -12155,7 +12160,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -12186,12 +12191,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -12215,11 +12220,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -12227,10 +12232,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -12254,15 +12259,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -12282,7 +12287,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -12293,24 +12298,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -12318,7 +12323,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -12327,7 +12332,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -12355,12 +12360,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -12380,12 +12385,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -12404,7 +12409,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -12414,29 +12419,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -12456,10 +12461,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -12505,7 +12510,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -12519,7 +12524,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -12527,7 +12532,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -12539,13 +12544,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -12553,7 +12558,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -12593,46 +12598,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -12641,7 +12646,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -12650,7 +12655,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -12664,7 +12669,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -12673,11 +12678,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -12688,7 +12693,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -12697,26 +12702,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -12726,13 +12731,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -12740,7 +12745,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -12770,7 +12775,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -12778,45 +12783,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -12824,10 +12829,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -12857,7 +12862,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -12879,10 +12884,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -12891,10 +12896,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -12905,32 +12910,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -12939,20 +12944,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -12960,7 +12965,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -12988,41 +12993,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -13030,13 +13035,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -13044,52 +13049,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -13097,7 +13102,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -13105,7 +13110,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -13114,10 +13119,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -13127,7 +13132,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -13135,12 +13140,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -13150,7 +13155,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -13159,12 +13164,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -13175,19 +13180,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -13195,7 +13200,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -13204,7 +13209,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -13213,11 +13218,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -13230,21 +13235,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -13252,14 +13257,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -13268,59 +13273,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -13329,7 +13334,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -13338,22 +13343,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -13361,21 +13366,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -13384,7 +13389,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -13393,7 +13398,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -13415,15 +13420,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -13432,53 +13437,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -13486,7 +13491,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -13495,7 +13500,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -13532,18 +13537,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -13551,14 +13556,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -13567,7 +13572,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -13576,7 +13581,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -13610,18 +13615,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -13629,27 +13634,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -13660,7 +13665,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -13669,7 +13674,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -13691,54 +13696,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -13814,7 +13819,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This test suite verifies cloud security features including:
     - Cloud infrastructure security
     - Cloud service security
@@ -13824,7 +13829,7 @@ class TestCloudSecurity:
 
     def test_cloud_infrastructure_security(self, security_test_generator, mock_security_services):
         """Test cloud infrastructure security controls.
-        
+
         This test verifies:
         - Infrastructure hardening
         - Network security
@@ -13904,7 +13909,7 @@ class TestCloudSecurity:
 
     def test_cloud_service_security(self, security_test_generator, mock_security_services):
         """Test cloud service security controls.
-        
+
         This test verifies:
         - Service authentication
         - Service authorization
@@ -13979,7 +13984,7 @@ class TestCloudSecurity:
 
     def test_cloud_data_protection(self, security_test_generator, mock_security_services):
         """Test cloud data protection controls.
-        
+
         This test verifies:
         - Data classification
         - Data encryption
@@ -14061,7 +14066,7 @@ class TestCloudSecurity:
 @pytest.mark.colab
 class TestColabSecurity:
     """Test Colab security features and controls.
-    
+
     This test suite verifies Colab security features including:
     - Colab authentication
     - Colab resource isolation
@@ -14072,7 +14077,7 @@ class TestColabSecurity:
 
     def test_colab_authentication(self, colab_test_generator, mock_colab_services):
         """Test Colab authentication controls.
-        
+
         This test verifies:
         - OAuth2 authentication
         - Credential management
@@ -14203,7 +14208,7 @@ class TestColabSecurity:
 
     def test_colab_resource_isolation(self, colab_test_generator, mock_colab_services):
         """Test Colab resource isolation controls.
-        
+
         This test verifies:
         - Runtime isolation
         - Memory isolation
@@ -14336,7 +14341,7 @@ class TestColabSecurity:
 
     def test_colab_data_protection(self, colab_test_generator, mock_colab_services):
         """Test Colab data protection controls.
-        
+
         This test verifies:
         - Data encryption
         - Data access control
@@ -14471,7 +14476,7 @@ class TestColabSecurity:
 
     def test_colab_runtime_security(self, colab_test_generator, mock_colab_services):
         """Test Colab runtime security controls.
-        
+
         This test verifies:
         - Runtime environment security
         - Package security
@@ -14589,33 +14594,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -14668,10 +14674,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -14686,25 +14692,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -14713,20 +14719,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -14740,7 +14746,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -14788,17 +14794,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -14819,20 +14825,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -14848,17 +14854,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -14869,11 +14875,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -14899,7 +14905,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -14908,7 +14914,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -14928,29 +14934,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -14961,12 +14967,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -14977,7 +14983,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -14990,7 +14996,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -15000,16 +15006,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -15017,26 +15023,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -15059,29 +15065,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -15089,10 +15095,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -15101,7 +15107,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -15116,7 +15122,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -15127,11 +15133,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -15144,7 +15150,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -15159,35 +15165,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -15196,7 +15202,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -15209,7 +15215,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -15220,7 +15226,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -15231,10 +15237,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -15244,7 +15250,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -15259,29 +15265,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -15293,7 +15299,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -15302,7 +15308,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -15333,12 +15339,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -15362,11 +15368,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -15374,10 +15380,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -15401,15 +15407,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -15429,7 +15435,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -15440,24 +15446,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -15465,7 +15471,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -15474,7 +15480,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -15502,12 +15508,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -15527,12 +15533,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -15551,7 +15557,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -15561,29 +15567,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -15603,10 +15609,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -15652,7 +15658,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -15666,7 +15672,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -15674,7 +15680,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -15686,13 +15692,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -15700,7 +15706,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -15740,46 +15746,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -15788,7 +15794,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -15797,7 +15803,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -15811,7 +15817,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -15820,11 +15826,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -15835,7 +15841,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -15844,26 +15850,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -15873,13 +15879,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -15887,7 +15893,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -15917,7 +15923,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -15925,45 +15931,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -15971,10 +15977,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -16004,7 +16010,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -16026,10 +16032,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -16038,10 +16044,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -16052,32 +16058,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -16086,20 +16092,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -16107,7 +16113,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -16135,41 +16141,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -16177,13 +16183,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -16191,52 +16197,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -16244,7 +16250,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -16252,7 +16258,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -16261,10 +16267,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -16274,7 +16280,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -16282,12 +16288,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -16297,7 +16303,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -16306,12 +16312,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -16322,19 +16328,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -16342,7 +16348,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -16351,7 +16357,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -16360,11 +16366,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -16377,21 +16383,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -16399,14 +16405,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -16415,59 +16421,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -16476,7 +16482,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -16485,22 +16491,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -16508,21 +16514,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -16531,7 +16537,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -16540,7 +16546,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -16562,15 +16568,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -16579,53 +16585,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -16633,7 +16639,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -16642,7 +16648,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -16679,18 +16685,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -16698,14 +16704,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -16714,7 +16720,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -16723,7 +16729,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -16757,18 +16763,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -16776,27 +16782,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -16807,7 +16813,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -16816,7 +16822,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -16838,54 +16844,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -16961,7 +16967,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This module contains tests for cloud security features including container security,
     serverless security, cloud storage security, and cloud identity security.
     It verifies the implementation of cloud security controls and their effectiveness
@@ -16970,7 +16976,7 @@ class TestCloudSecurity:
 
     def test_container_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test container security features.
-        
+
         This test verifies:
         - Container image security
         - Container runtime security
@@ -16979,7 +16985,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test container image security
         image_tests = [
             {
@@ -16998,13 +17004,13 @@ class TestCloudSecurity:
                 'expected_compliant': True
             }
         ]
-        
+
         for test in image_tests:
             result = services['container'].validate_image_security(test)
             assert result['vulnerabilities'] == test['expected_vulnerabilities']
             assert result['integrity'] == test['expected_integrity']
             assert result['compliant'] == test['expected_compliant']
-        
+
         # Test container runtime security
         runtime_tests = [
             {
@@ -17023,13 +17029,13 @@ class TestCloudSecurity:
                 'expected_patched': True
             }
         ]
-        
+
         for test in runtime_tests:
             result = services['container'].validate_runtime_security(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['hardened'] == test['expected_hardened']
             assert result['patched'] == test['expected_patched']
-        
+
         # Test network isolation
         network_tests = [
             {
@@ -17043,12 +17049,12 @@ class TestCloudSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in network_tests:
             result = services['container'].validate_network_isolation(test)
             assert result['segmented'] == test['expected_segmented']
             assert result['allowed'] == test['expected_allowed']
-        
+
         # Test resource limits
         resource_tests = [
             {
@@ -17067,14 +17073,14 @@ class TestCloudSecurity:
                 'expected_limited': True
             }
         ]
-        
+
         for test in resource_tests:
             result = services['container'].validate_resource_limits(test)
             assert result['limited'] == test['expected_limited']
 
     def test_serverless_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test serverless security features.
-        
+
         This test verifies:
         - Function security
         - Event security
@@ -17083,7 +17089,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test function security
         function_tests = [
             {
@@ -17102,13 +17108,13 @@ class TestCloudSecurity:
                 'expected_compliant': True
             }
         ]
-        
+
         for test in function_tests:
             result = services['serverless'].validate_function_security(test)
             assert result['authorized'] == test['expected_authorized']
             assert result['integrity'] == test['expected_integrity']
             assert result['compliant'] == test['expected_compliant']
-        
+
         # Test event security
         event_tests = [
             {
@@ -17122,12 +17128,12 @@ class TestCloudSecurity:
                 'expected_authorized': True
             }
         ]
-        
+
         for test in event_tests:
             result = services['serverless'].validate_event_security(test)
             assert result['validated'] == test['expected_validated']
             assert result['authorized'] == test['expected_authorized']
-        
+
         # Test resource isolation
         isolation_tests = [
             {
@@ -17141,12 +17147,12 @@ class TestCloudSecurity:
                 'expected_limited': True
             }
         ]
-        
+
         for test in isolation_tests:
             result = services['serverless'].validate_resource_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['limited'] == test['expected_limited']
-        
+
         # Test data protection
         data_tests = [
             {
@@ -17170,7 +17176,7 @@ class TestCloudSecurity:
                 'expected_retained': True
             }
         ]
-        
+
         for test in data_tests:
             result = services['serverless'].validate_data_protection(test)
             assert result['encrypted'] == test['expected_encrypted']
@@ -17180,7 +17186,7 @@ class TestCloudSecurity:
 
     def test_cloud_storage_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test cloud storage security features.
-        
+
         This test verifies:
         - Encryption
         - Access control
@@ -17189,7 +17195,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test encryption
         encryption_tests = [
             {
@@ -17203,12 +17209,12 @@ class TestCloudSecurity:
                 'expected_managed': True
             }
         ]
-        
+
         for test in encryption_tests:
             result = services['storage'].validate_encryption(test)
             assert result['encrypted'] == test['expected_encrypted']
             assert result['managed'] == test['expected_managed']
-        
+
         # Test access control
         access_tests = [
             {
@@ -17222,12 +17228,12 @@ class TestCloudSecurity:
                 'expected_managed': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['storage'].validate_access_control(test)
             assert result['allowed'] == test['expected_allowed']
             assert result['managed'] == test['expected_managed']
-        
+
         # Test lifecycle management
         lifecycle_tests = [
             {
@@ -17241,12 +17247,12 @@ class TestCloudSecurity:
                 'expected_deleted': True
             }
         ]
-        
+
         for test in lifecycle_tests:
             result = services['storage'].validate_lifecycle_management(test)
             assert result['retained'] == test['expected_retained']
             assert result['deleted'] == test['expected_deleted']
-        
+
         # Test backup
         backup_tests = [
             {
@@ -17260,7 +17266,7 @@ class TestCloudSecurity:
                 'expected_verified': True
             }
         ]
-        
+
         for test in backup_tests:
             result = services['storage'].validate_backup(test)
             assert result['backed_up'] == test['expected_backed_up']
@@ -17268,7 +17274,7 @@ class TestCloudSecurity:
 
     def test_cloud_identity_security(self, cloud_security_test_generator, mock_cloud_security_services):
         """Test cloud identity security features.
-        
+
         This test verifies:
         - Identity management
         - Access control
@@ -17277,7 +17283,7 @@ class TestCloudSecurity:
         """
         generator = cloud_security_test_generator
         services = mock_cloud_security_services
-        
+
         # Test identity management
         identity_tests = [
             {
@@ -17291,12 +17297,12 @@ class TestCloudSecurity:
                 'expected_deprovisioned': True
             }
         ]
-        
+
         for test in identity_tests:
             result = services['identity'].validate_identity_management(test)
             assert result['provisioned'] == test['expected_provisioned']
             assert result['deprovisioned'] == test['expected_deprovisioned']
-        
+
         # Test access control
         access_tests = [
             {
@@ -17312,12 +17318,12 @@ class TestCloudSecurity:
                 'expected_revoked': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['identity'].validate_access_control(test)
             assert result['granted'] == test['expected_granted']
             assert result['revoked'] == test['expected_revoked']
-        
+
         # Test authentication
         auth_tests = [
             {
@@ -17333,11 +17339,11 @@ class TestCloudSecurity:
                 'expected_authenticated': True
             }
         ]
-        
+
         for test in auth_tests:
             result = services['identity'].validate_authentication(test)
             assert result['authenticated'] == test['expected_authenticated']
-        
+
         # Test authorization
         authz_tests = [
             {
@@ -17353,7 +17359,7 @@ class TestCloudSecurity:
                 'expected_granted': True
             }
         ]
-        
+
         for test in authz_tests:
             result = services['identity'].validate_authorization(test)
             assert result['assigned'] == test['expected_assigned']
@@ -17363,7 +17369,7 @@ class TestCloudSecurity:
 @pytest.mark.colab
 class TestColabSecurity:
     """Test Colab security features and controls.
-    
+
     This module contains tests for Colab security features including authentication,
     resource isolation, data protection, runtime security, and monitoring.
     It verifies the implementation of Colab security controls and their effectiveness
@@ -17372,7 +17378,7 @@ class TestColabSecurity:
 
     def test_colab_authentication(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab authentication features.
-        
+
         This test verifies:
         - OAuth2 authentication
         - Credential management
@@ -17382,7 +17388,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test OAuth2 authentication
         oauth_tests = [
             {
@@ -17396,12 +17402,12 @@ class TestColabSecurity:
                 'expected_token': 'test_token'
             }
         ]
-        
+
         for test in oauth_tests:
             result = services['auth'].validate_oauth_authentication(test)
             assert result['authorized'] == test['expected_authorized']
             assert result['token'] == test['expected_token']
-        
+
         # Test credential management
         credential_tests = [
             {
@@ -17415,12 +17421,12 @@ class TestColabSecurity:
                 'expected_rotated': True
             }
         ]
-        
+
         for test in credential_tests:
             result = services['auth'].validate_credential_management(test)
             assert result['stored'] == test['expected_stored']
             assert result['rotated'] == test['expected_rotated']
-        
+
         # Test token validation
         token_tests = [
             {
@@ -17434,12 +17440,12 @@ class TestColabSecurity:
                 'expected_expired': False
             }
         ]
-        
+
         for test in token_tests:
             result = services['auth'].validate_token(test)
             assert result['valid'] == test['expected_valid']
             assert result['expired'] == test['expected_expired']
-        
+
         # Test session management
         session_tests = [
             {
@@ -17453,12 +17459,12 @@ class TestColabSecurity:
                 'expected_terminated': True
             }
         ]
-        
+
         for test in session_tests:
             result = services['auth'].validate_session_management(test)
             assert result['session'] == test['expected_session']
             assert result['terminated'] == test['expected_terminated']
-        
+
         # Test access token refresh
         refresh_tests = [
             {
@@ -17472,7 +17478,7 @@ class TestColabSecurity:
                 'expected_revoked': True
             }
         ]
-        
+
         for test in refresh_tests:
             result = services['auth'].validate_token_refresh(test)
             assert result['refreshed'] == test['expected_refreshed']
@@ -17480,7 +17486,7 @@ class TestColabSecurity:
 
     def test_colab_resource_isolation(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab resource isolation features.
-        
+
         This test verifies:
         - Runtime isolation
         - Memory isolation
@@ -17490,7 +17496,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test runtime isolation
         runtime_tests = [
             {
@@ -17504,12 +17510,12 @@ class TestColabSecurity:
                 'expected_hardened': True
             }
         ]
-        
+
         for test in runtime_tests:
             result = services['isolation'].validate_runtime_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['hardened'] == test['expected_hardened']
-        
+
         # Test memory isolation
         memory_tests = [
             {
@@ -17523,12 +17529,12 @@ class TestColabSecurity:
                 'expected_protected': True
             }
         ]
-        
+
         for test in memory_tests:
             result = services['isolation'].validate_memory_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['protected'] == test['expected_protected']
-        
+
         # Test GPU isolation
         gpu_tests = [
             {
@@ -17542,12 +17548,12 @@ class TestColabSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in gpu_tests:
             result = services['isolation'].validate_gpu_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['allowed'] == test['expected_allowed']
-        
+
         # Test storage isolation
         storage_tests = [
             {
@@ -17561,12 +17567,12 @@ class TestColabSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in storage_tests:
             result = services['isolation'].validate_storage_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['allowed'] == test['expected_allowed']
-        
+
         # Test network isolation
         network_tests = [
             {
@@ -17580,7 +17586,7 @@ class TestColabSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in network_tests:
             result = services['isolation'].validate_network_isolation(test)
             assert result['isolated'] == test['expected_isolated']
@@ -17588,7 +17594,7 @@ class TestColabSecurity:
 
     def test_colab_data_protection(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab data protection features.
-        
+
         This test verifies:
         - Data encryption
         - Data access control
@@ -17598,7 +17604,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test data encryption
         encryption_tests = [
             {
@@ -17612,12 +17618,12 @@ class TestColabSecurity:
                 'expected_managed': True
             }
         ]
-        
+
         for test in encryption_tests:
             result = services['data'].validate_data_encryption(test)
             assert result['encrypted'] == test['expected_encrypted']
             assert result['managed'] == test['expected_managed']
-        
+
         # Test data access control
         access_tests = [
             {
@@ -17632,12 +17638,12 @@ class TestColabSecurity:
                 'expected_authorized': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['data'].validate_data_access_control(test)
             assert result['allowed'] == test['expected_allowed']
             assert result['authorized'] == test['expected_authorized']
-        
+
         # Test data backup
         backup_tests = [
             {
@@ -17651,12 +17657,12 @@ class TestColabSecurity:
                 'expected_verified': True
             }
         ]
-        
+
         for test in backup_tests:
             result = services['data'].validate_data_backup(test)
             assert result['backed_up'] == test['expected_backed_up']
             assert result['verified'] == test['expected_verified']
-        
+
         # Test data retention
         retention_tests = [
             {
@@ -17670,12 +17676,12 @@ class TestColabSecurity:
                 'expected_deleted': True
             }
         ]
-        
+
         for test in retention_tests:
             result = services['data'].validate_data_retention(test)
             assert result['retained'] == test['expected_retained']
             assert result['deleted'] == test['expected_deleted']
-        
+
         # Test data sanitization
         sanitization_tests = [
             {
@@ -17689,7 +17695,7 @@ class TestColabSecurity:
                 'expected_cleansed': True
             }
         ]
-        
+
         for test in sanitization_tests:
             result = services['data'].validate_data_sanitization(test)
             assert result['sanitized'] == test['expected_sanitized']
@@ -17697,7 +17703,7 @@ class TestColabSecurity:
 
     def test_colab_runtime_security(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab runtime security features.
-        
+
         This test verifies:
         - Runtime environment security
         - Package security
@@ -17707,7 +17713,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test runtime environment security
         environment_tests = [
             {
@@ -17721,12 +17727,12 @@ class TestColabSecurity:
                 'expected_hardened': True
             }
         ]
-        
+
         for test in environment_tests:
             result = services['runtime'].validate_environment_security(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['hardened'] == test['expected_hardened']
-        
+
         # Test package security
         package_tests = [
             {
@@ -17740,12 +17746,12 @@ class TestColabSecurity:
                 'expected_vulnerabilities': 0
             }
         ]
-        
+
         for test in package_tests:
             result = services['runtime'].validate_package_security(test)
             assert result['integrity'] == test['expected_integrity']
             assert result['vulnerabilities'] == test['expected_vulnerabilities']
-        
+
         # Test resource limits
         resource_tests = [
             {
@@ -17764,11 +17770,11 @@ class TestColabSecurity:
                 'expected_limited': True
             }
         ]
-        
+
         for test in resource_tests:
             result = services['runtime'].validate_resource_limits(test)
             assert result['limited'] == test['expected_limited']
-        
+
         # Test process isolation
         process_tests = [
             {
@@ -17782,12 +17788,12 @@ class TestColabSecurity:
                 'expected_monitored': True
             }
         ]
-        
+
         for test in process_tests:
             result = services['runtime'].validate_process_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             assert result['monitored'] == test['expected_monitored']
-        
+
         # Test system hardening
         hardening_tests = [
             {
@@ -17801,7 +17807,7 @@ class TestColabSecurity:
                 'expected_patched': True
             }
         ]
-        
+
         for test in hardening_tests:
             result = services['runtime'].validate_system_hardening(test)
             assert result['hardened'] == test['expected_hardened']
@@ -17809,7 +17815,7 @@ class TestColabSecurity:
 
     def test_colab_monitoring_logging(self, colab_security_test_generator, mock_colab_security_services):
         """Test Colab monitoring and logging features.
-        
+
         This test verifies:
         - Resource monitoring
         - Security monitoring
@@ -17819,7 +17825,7 @@ class TestColabSecurity:
         """
         generator = colab_security_test_generator
         services = mock_colab_security_services
-        
+
         # Test resource monitoring
         resource_tests = [
             {
@@ -17833,12 +17839,12 @@ class TestColabSecurity:
                 'expected_capacity': 1024
             }
         ]
-        
+
         for test in resource_tests:
             result = services['monitoring'].validate_resource_monitoring(test)
             assert result['utilization'] == test['expected_utilization']
             assert result['capacity'] == test['expected_capacity']
-        
+
         # Test security monitoring
         security_tests = [
             {
@@ -17850,12 +17856,12 @@ class TestColabSecurity:
                 'expected_anomalies': 0
             }
         ]
-        
+
         for test in security_tests:
             result = services['monitoring'].validate_security_monitoring(test)
             assert result['intrusions'] == test['expected_intrusions']
             assert result['anomalies'] == test['expected_anomalies']
-        
+
         # Test activity logging
         activity_tests = [
             {
@@ -17869,12 +17875,12 @@ class TestColabSecurity:
                 'expected_audited': True
             }
         ]
-        
+
         for test in activity_tests:
             result = services['logging'].validate_activity_logging(test)
             assert result['logged'] == test['expected_logged']
             assert result['audited'] == test['expected_audited']
-        
+
         # Test audit logging
         audit_tests = [
             {
@@ -17888,12 +17894,12 @@ class TestColabSecurity:
                 'expected_retained': True
             }
         ]
-        
+
         for test in audit_tests:
             result = services['logging'].validate_audit_logging(test)
             assert result['logged'] == test['expected_logged']
             assert result['retained'] == test['expected_retained']
-        
+
         # Test alert management
         alert_tests = [
             {
@@ -17907,7 +17913,7 @@ class TestColabSecurity:
                 'expected_escalated': True
             }
         ]
-        
+
         for test in alert_tests:
             result = services['monitoring'].validate_alert_management(test)
             assert result['generated'] == test['expected_generated']
@@ -17921,33 +17927,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -18000,10 +18007,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -18018,25 +18025,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -18045,20 +18052,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -18072,7 +18079,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -18120,17 +18127,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -18151,20 +18158,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -18180,17 +18187,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -18201,11 +18208,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -18231,7 +18238,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -18240,7 +18247,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -18260,29 +18267,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -18293,12 +18300,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -18309,7 +18316,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -18322,7 +18329,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -18332,16 +18339,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -18349,26 +18356,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -18391,29 +18398,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -18421,10 +18428,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -18433,7 +18440,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -18448,7 +18455,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -18459,11 +18466,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -18476,7 +18483,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -18491,35 +18498,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -18528,7 +18535,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -18541,7 +18548,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -18552,7 +18559,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -18563,10 +18570,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -18576,7 +18583,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -18591,29 +18598,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -18625,7 +18632,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -18634,7 +18641,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -18665,12 +18672,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -18694,11 +18701,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -18706,10 +18713,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -18733,15 +18740,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -18761,7 +18768,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -18772,24 +18779,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -18797,7 +18804,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -18806,7 +18813,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -18834,12 +18841,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -18859,12 +18866,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -18883,7 +18890,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -18893,29 +18900,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -18935,10 +18942,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -18984,7 +18991,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -18998,7 +19005,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -19006,7 +19013,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -19018,13 +19025,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -19032,7 +19039,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -19072,46 +19079,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -19120,7 +19127,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -19129,7 +19136,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -19143,7 +19150,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -19152,11 +19159,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -19167,7 +19174,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -19176,26 +19183,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -19205,13 +19212,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -19219,7 +19226,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -19249,7 +19256,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -19257,45 +19264,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -19303,10 +19310,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -19336,7 +19343,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -19358,10 +19365,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -19370,10 +19377,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -19384,32 +19391,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -19418,20 +19425,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -19439,7 +19446,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -19467,41 +19474,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -19509,13 +19516,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -19523,52 +19530,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -19576,7 +19583,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -19584,7 +19591,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -19593,10 +19600,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -19606,7 +19613,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -19614,12 +19621,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -19629,7 +19636,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -19638,12 +19645,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -19654,19 +19661,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -19674,7 +19681,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -19683,7 +19690,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -19692,11 +19699,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -19709,21 +19716,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -19731,14 +19738,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -19747,59 +19754,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -19808,7 +19815,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -19817,22 +19824,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -19840,21 +19847,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -19863,7 +19870,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -19872,7 +19879,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -19894,15 +19901,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -19911,53 +19918,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -19965,7 +19972,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -19974,7 +19981,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -20011,18 +20018,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -20030,14 +20037,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -20046,7 +20053,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -20055,7 +20062,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -20089,18 +20096,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -20108,27 +20115,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -20139,7 +20146,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -20148,7 +20155,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -20170,54 +20177,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -20293,7 +20300,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This test suite verifies cloud security features including:
     - Cloud infrastructure security
     - Cloud service security
@@ -20303,7 +20310,7 @@ class TestCloudSecurity:
 
     def test_cloud_infrastructure_security(self, security_test_generator, mock_security_services):
         """Test cloud infrastructure security controls.
-        
+
         This test verifies:
         - Infrastructure hardening
         - Network security
@@ -20383,7 +20390,7 @@ class TestCloudSecurity:
 
     def test_cloud_service_security(self, security_test_generator, mock_security_services):
         """Test cloud service security controls.
-        
+
         This test verifies:
         - Service authentication
         - Service authorization
@@ -20458,7 +20465,7 @@ class TestCloudSecurity:
 
     def test_cloud_data_protection(self, security_test_generator, mock_security_services):
         """Test cloud data protection controls.
-        
+
         This test verifies:
         - Data classification
         - Data encryption
@@ -20540,7 +20547,7 @@ class TestCloudSecurity:
 @pytest.mark.colab
 class TestColabSecurity:
     """Test Colab security features and controls.
-    
+
     This test suite verifies Colab security features including:
     - Colab authentication
     - Colab resource isolation
@@ -20551,7 +20558,7 @@ class TestColabSecurity:
 
     def test_colab_authentication(self, colab_test_generator, mock_colab_services):
         """Test Colab authentication controls.
-        
+
         This test verifies:
         - OAuth2 authentication
         - Credential management
@@ -20682,7 +20689,7 @@ class TestColabSecurity:
 
     def test_colab_resource_isolation(self, colab_test_generator, mock_colab_services):
         """Test Colab resource isolation controls.
-        
+
         This test verifies:
         - Runtime isolation
         - Memory isolation
@@ -20815,7 +20822,7 @@ class TestColabSecurity:
 
     def test_colab_data_protection(self, colab_test_generator, mock_colab_services):
         """Test Colab data protection controls.
-        
+
         This test verifies:
         - Data encryption
         - Data access control
@@ -20950,7 +20957,7 @@ class TestColabSecurity:
 
     def test_colab_runtime_security(self, colab_test_generator, mock_colab_services):
         """Test Colab runtime security controls.
-        
+
         This test verifies:
         - Runtime environment security
         - Package security
@@ -21040,33 +21047,34 @@ It verifies the implementation of network security controls and their effectiven
 in protecting the application infrastructure.
 """
 
-import pytest
+import asyncio
+import concurrent.futures
+import ipaddress
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Set, Union
-import re
-import ipaddress
-import socket
-import requests
-from scapy.all import IP, TCP, UDP, ICMP, sr1, srp1
-import nmap
-import time
 import random
-import concurrent.futures
-from unittest.mock import Mock, patch, MagicMock
-import asyncio
+import re
+import socket
 import statistics
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from collections import defaultdict, Counter
-import numpy as np
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock, Mock, patch
 
-from services.security import SecurityService, SecurityException
-from services.network import NetworkSecurityService
+import nmap
+import numpy as np
+import pytest
+import requests
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from scapy.all import ICMP, IP, TCP, UDP, sr1, srp1
 from services.monitoring import MonitoringService
+from services.network import NetworkSecurityService
+from services.security import SecurityException, SecurityService
+
 from tests.security.config import get_security_config
-from tests.security.fixtures import network_test_client, mock_network_traffic
+from tests.security.fixtures import mock_network_traffic, network_test_client
 
 # Test utilities and fixtures
 
@@ -21119,10 +21127,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -21137,25 +21145,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -21164,20 +21172,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -21191,7 +21199,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -21239,17 +21247,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -21270,20 +21278,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -21299,17 +21307,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -21320,11 +21328,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -21350,7 +21358,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -21359,7 +21367,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -21379,29 +21387,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -21412,12 +21420,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -21428,7 +21436,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -21441,7 +21449,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -21451,16 +21459,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -21468,26 +21476,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -21510,29 +21518,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -21540,10 +21548,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -21552,7 +21560,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -21567,7 +21575,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -21578,11 +21586,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -21595,7 +21603,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -21610,35 +21618,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -21647,7 +21655,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -21660,7 +21668,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -21671,7 +21679,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -21682,10 +21690,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -21695,7 +21703,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -21710,29 +21718,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -21744,7 +21752,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -21753,7 +21761,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -21784,12 +21792,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -21813,11 +21821,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -21825,10 +21833,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -21852,15 +21860,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -21880,7 +21888,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -21891,24 +21899,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -21916,7 +21924,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -21925,7 +21933,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -21953,12 +21961,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -21978,12 +21986,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -22002,7 +22010,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -22012,29 +22020,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -22054,10 +22062,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -22103,7 +22111,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -22117,7 +22125,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -22125,7 +22133,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -22137,13 +22145,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -22151,7 +22159,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -22191,46 +22199,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -22239,7 +22247,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -22248,7 +22256,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -22262,7 +22270,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -22271,11 +22279,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -22286,7 +22294,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -22295,26 +22303,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -22324,13 +22332,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -22338,7 +22346,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -22368,7 +22376,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -22376,45 +22384,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -22422,10 +22430,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -22455,7 +22463,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -22477,10 +22485,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -22489,10 +22497,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -22503,32 +22511,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -22537,20 +22545,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -22558,7 +22566,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -22586,41 +22594,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -22628,13 +22636,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -22642,52 +22650,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -22695,7 +22703,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -22703,7 +22711,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -22712,10 +22720,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -22725,7 +22733,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -22733,12 +22741,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -22748,7 +22756,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -22757,12 +22765,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -22773,19 +22781,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -22793,7 +22801,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -22802,7 +22810,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -22811,11 +22819,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -22828,21 +22836,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -22850,14 +22858,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -22866,59 +22874,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -22927,7 +22935,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -22936,22 +22944,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -22959,21 +22967,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -22982,7 +22990,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -22991,7 +22999,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -23013,15 +23021,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -23030,53 +23038,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -23084,7 +23092,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -23093,7 +23101,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -23130,18 +23138,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -23149,14 +23157,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -23165,7 +23173,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -23174,7 +23182,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -23208,18 +23216,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -23227,27 +23235,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -23258,7 +23266,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -23267,7 +23275,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -23289,54 +23297,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -23412,7 +23420,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
 """Network security tests.
 
 This module contains tests for network security features including firewall rules,
@@ -23500,10 +23508,10 @@ class ThreatTestData:
 
 class NetworkTestDataGenerator:
     """Utility class for generating test network data."""
-    
+
     def __init__(self, seed: Optional[int] = None):
         """Initialize the test data generator.
-        
+
         Args:
             seed: Optional random seed for reproducible test data
         """
@@ -23518,25 +23526,25 @@ class NetworkTestDataGenerator:
             'udp': [53, 67, 68, 123, 161, 500],
             'icmp': [0]  # ICMP uses type/code instead of ports
         }
-    
+
     def generate_ip(self, network_type: str = 'internal') -> str:
         """Generate a random IP address.
-        
+
         Args:
             network_type: Type of network ('internal' or 'external')
-            
+
         Returns:
             str: Random IP address
         """
         network = ipaddress.ip_network(self.random.choice(self.ip_ranges[network_type]))
         return str(network[self.random.randint(0, network.num_addresses - 1)])
-    
+
     def generate_port(self, protocol: str) -> int:
         """Generate a random port number.
-        
+
         Args:
             protocol: Network protocol
-            
+
         Returns:
             int: Random port number
         """
@@ -23545,20 +23553,20 @@ class NetworkTestDataGenerator:
         if self.random.random() < 0.8:  # 80% chance to use common ports
             return self.random.choice(self.common_ports[protocol])
         return self.random.randint(1, 65535)
-    
+
     def generate_traffic(self, count: int, attack_ratio: float = 0.1) -> List[Dict[str, Any]]:
         """Generate test network traffic.
-        
+
         Args:
             count: Number of traffic entries to generate
             attack_ratio: Ratio of attack traffic to normal traffic
-            
+
         Returns:
             List[Dict[str, Any]]: Generated traffic data
         """
         traffic = []
         attack_count = int(count * attack_ratio)
-        
+
         # Generate normal traffic
         for _ in range(count - attack_count):
             protocol = self.random.choice(self.protocols)
@@ -23572,7 +23580,7 @@ class NetworkTestDataGenerator:
                 'timestamp': datetime.now().isoformat(),
                 'type': 'normal'
             })
-        
+
         # Generate attack traffic
         attack_types = ['port_scan', 'brute_force', 'data_exfiltration', 'ddos']
         for _ in range(attack_count):
@@ -23620,17 +23628,17 @@ class NetworkTestDataGenerator:
                     'type': 'attack',
                     'attack_type': attack_type
                 })
-        
+
         return traffic
 
 class SecurityTestDataGenerator:
     """Enhanced test data generator for security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for test monitoring."""
         self.threat_detection_latency = Histogram(
@@ -23651,20 +23659,20 @@ class SecurityTestDataGenerator:
             ['threat_type'],
             registry=self.registry
         )
-    
+
     def generate_threat_data(self, count: int = 10) -> List[ThreatTestData]:
         """Generate realistic threat test data."""
         threats = []
-        threat_types = ['port_scan', 'brute_force', 'data_exfiltration', 
+        threat_types = ['port_scan', 'brute_force', 'data_exfiltration',
                        'malware', 'dns_tunneling', 'command_injection']
-        
+
         for _ in range(count):
             threat_type = random.choice(threat_types)
             source_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
             target_ip = f"10.0.{random.randint(1, 254)}.{random.randint(1, 254)}"
             protocol = random.choice(['tcp', 'udp', 'icmp'])
             port = random.randint(1, 65535)
-            
+
             threat = ThreatTestData(
                 threat_type=threat_type,
                 source_ip=source_ip,
@@ -23680,17 +23688,17 @@ class SecurityTestDataGenerator:
                 }
             )
             threats.append(threat)
-        
+
         return threats
-    
-    def generate_performance_test_data(self, 
+
+    def generate_performance_test_data(self,
                                      duration: int = 300,
                                      request_rate: int = 100) -> List[Dict[str, Any]]:
         """Generate performance test data with realistic traffic patterns."""
         test_data = []
         start_time = time.time()
         end_time = start_time + duration
-        
+
         while time.time() < end_time:
             # Generate burst traffic
             if random.random() < 0.1:  # 10% chance of burst
@@ -23701,11 +23709,11 @@ class SecurityTestDataGenerator:
                 # Normal traffic
                 for _ in range(request_rate):
                     test_data.append(self._generate_request())
-            
+
             time.sleep(1)  # Control request rate
-        
+
         return test_data
-    
+
     def _generate_request(self) -> Dict[str, Any]:
         """Generate a single test request with realistic patterns."""
         return {
@@ -23731,7 +23739,7 @@ class SecurityTestDataGenerator:
 @pytest.fixture
 def test_data_generator():
     """Fixture for test data generation.
-    
+
     Returns:
         NetworkTestDataGenerator: Test data generator instance
     """
@@ -23740,7 +23748,7 @@ def test_data_generator():
 @pytest.fixture
 def performance_test_config():
     """Fixture for performance test configuration.
-    
+
     Returns:
         dict: Configuration for performance testing
     """
@@ -23760,29 +23768,29 @@ def performance_test_config():
 @pytest.fixture
 def mock_network_services():
     """Fixture for mocking multiple network services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances
     """
     services = {}
-    
+
     # Mock firewall service
     firewall_service = Mock(spec=NetworkSecurityService)
     firewall_service.configure_firewall_rule.return_value = {'status': 'success', 'rule_id': 'MOCK-FW-RULE'}
     firewall_service.check_firewall_rule.return_value = {'action': 'allow', 'rule_id': 'MOCK-FW-RULE'}
     services['firewall'] = firewall_service
-    
+
     # Mock monitoring service
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {'monitored': True, 'timestamp': datetime.now().isoformat()}
     monitoring_service.detect_threat.return_value = {'detected': False, 'confidence': 0.0}
     services['monitoring'] = monitoring_service
-    
+
     # Mock security service
     security_service = Mock(spec=SecurityService)
     security_service.assess_security.return_value = {'score': 0.95, 'recommendations': []}
     services['security'] = security_service
-    
+
     return services
 
 @pytest.fixture
@@ -23793,12 +23801,12 @@ def security_test_generator(security_config):
 @pytest.fixture
 def mock_security_services():
     """Enhanced fixture for mocking security services.
-    
+
     Returns:
         dict: Dictionary of mocked service instances with enhanced capabilities
     """
     services = {}
-    
+
     # Mock threat detection service
     threat_service = Mock(spec=SecurityService)
     threat_service.detect_threat.return_value = {
@@ -23809,7 +23817,7 @@ def mock_security_services():
         'recommendations': ['block_ip', 'alert_admin']
     }
     services['threat'] = threat_service
-    
+
     # Mock monitoring service with enhanced capabilities
     monitoring_service = Mock(spec=MonitoringService)
     monitoring_service.monitor_traffic.return_value = {
@@ -23822,7 +23830,7 @@ def mock_security_services():
         }
     }
     services['monitoring'] = monitoring_service
-    
+
     # Mock compliance service
     compliance_service = Mock(spec=SecurityService)
     compliance_service.check_compliance.return_value = {
@@ -23832,16 +23840,16 @@ def mock_security_services():
         'recommendations': []
     }
     services['compliance'] = compliance_service
-    
+
     return services
 
 class TestNetworkSecurity:
     """Base class for network security tests with common utilities."""
-    
+
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -23849,26 +23857,26 @@ class TestNetworkSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_firewall_rules()
         self.service.cleanup_network_segments()
         self.service.cleanup_monitoring_data()
         self.service.reset_monitoring_state()
-    
+
     def record_metric(self, metric_name: str, value: float):
         """Record a test metric.
-        
+
         Args:
             metric_name: Name of the metric
             value: Metric value
         """
         self.metrics[metric_name].append(value)
-    
+
     def calculate_metrics(self) -> TestMetrics:
         """Calculate test performance metrics.
-        
+
         Returns:
             TestMetrics: Calculated test metrics
         """
@@ -23891,29 +23899,29 @@ class TestNetworkSecurity:
                 'network': statistics.mean(self.metrics['network_usage'])
             }
         )
-    
+
     def verify_metrics(self, metrics: TestMetrics, config: dict):
         """Verify test performance metrics against thresholds.
-        
+
         Args:
             metrics: Test metrics to verify
             config: Test configuration with thresholds
         """
         assert metrics.error_rate <= config['error_threshold'], \
             f"Error rate {metrics.error_rate} exceeds threshold {config['error_threshold']}"
-        
+
         assert metrics.avg_response_time <= config['response_time_threshold'], \
             f"Average response time {metrics.avg_response_time}s exceeds threshold {config['response_time_threshold']}s"
-        
+
         assert metrics.throughput >= config['target_throughput'] * 0.9, \
             f"Throughput {metrics.throughput} below 90% of target {config['target_throughput']}"
-        
+
         assert metrics.resource_metrics['cpu'] < 80, \
             f"High CPU usage: {metrics.resource_metrics['cpu']}%"
-        
+
         assert metrics.resource_metrics['memory'] < 80, \
             f"High memory usage: {metrics.resource_metrics['memory']}%"
-        
+
         assert metrics.resource_metrics['network'] < 80, \
             f"High network usage: {metrics.resource_metrics['network']}%"
 
@@ -23921,10 +23929,10 @@ class TestNetworkSecurity:
 @pytest.mark.network
 class TestNetworkAccessControl(TestNetworkSecurity):
     """Test network access control features."""
-    
+
     def test_firewall_rule_performance(self, network_test_client, performance_test_config, test_data_generator):
         """Test firewall rule performance under various conditions.
-        
+
         This test verifies:
         - Rule matching performance
         - Rule update performance
@@ -23933,7 +23941,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test rules
         rules = []
         for i in range(1000):
@@ -23948,7 +23956,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': i
             }
             rules.append(rule)
-        
+
         # Test rule configuration performance
         start_time = time.time()
         for rule in rules:
@@ -23959,11 +23967,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Test rule matching performance
         test_traffic = test_data_generator.generate_traffic(1000)
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -23976,7 +23984,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         port=traffic.get('port', 0)
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -23991,35 +23999,35 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional performance assertions
         assert metrics.p95_response_time <= config['response_time_threshold'] * 2, \
             f"P95 response time {metrics.p95_response_time}s exceeds threshold {config['response_time_threshold'] * 2}s"
-        
+
         assert metrics.p99_response_time <= config['response_time_threshold'] * 3, \
             f"P99 response time {metrics.p99_response_time}s exceeds threshold {config['response_time_threshold'] * 3}s"
-        
+
         # Verify rule matching accuracy
         rule_matches = Counter(self.metrics['rule_match'])
         assert rule_matches['allow'] + rule_matches['deny'] == len(test_traffic), \
             "Not all traffic was matched against rules"
-        
+
         # Verify resource utilization patterns
         cpu_usage = self.metrics['cpu_usage']
         assert max(cpu_usage) - min(cpu_usage) < 30, \
             "High CPU usage variation during test"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert max(memory_usage) - min(memory_usage) < 20, \
             "High memory usage variation during test"
 
     def test_network_segmentation_scalability(self, network_test_client, performance_test_config, test_data_generator):
         """Test network segmentation scalability.
-        
+
         This test verifies:
         - Segment creation performance
         - Access control scalability
@@ -24028,7 +24036,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         """
         service, _ = network_test_client
         config = performance_test_config
-        
+
         # Generate test segments
         segments = []
         for i in range(100):  # Create 100 segments
@@ -24041,7 +24049,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
             segments.append(segment)
-        
+
         # Test segment creation performance
         start_time = time.time()
         for segment in segments:
@@ -24052,7 +24060,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             self.record_metric('cpu_usage', service.get_cpu_usage())
             self.record_metric('memory_usage', service.get_memory_usage())
             self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Generate cross-segment traffic
         test_traffic = []
         for _ in range(1000):
@@ -24063,10 +24071,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'destination': f"{dest_segment['subnet'].split('/')[0].rsplit('.', 1)[0]}.{test_data_generator.random.randint(1, 254)}",
                 'protocol': test_data_generator.random.choice(['http', 'https', 'database'])
             })
-        
+
         # Test cross-segment access performance
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=config['concurrent_connections']) as executor:
             futures = []
             for traffic in test_traffic:
@@ -24076,7 +24084,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                         **traffic
                     )
                 )
-            
+
             for future in concurrent.futures.as_completed(futures, timeout=config['timeout']):
                 try:
                     result = future.result()
@@ -24091,29 +24099,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 self.record_metric('cpu_usage', service.get_cpu_usage())
                 self.record_metric('memory_usage', service.get_memory_usage())
                 self.record_metric('network_usage', service.get_network_usage())
-        
+
         # Calculate and verify metrics
         metrics = self.calculate_metrics()
         self.verify_metrics(metrics, config)
-        
+
         # Additional scalability assertions
         assert metrics.throughput >= config['target_throughput'] * 0.8, \
             f"Throughput {metrics.throughput} below 80% of target {config['target_throughput']}"
-        
+
         # Verify segment isolation
         access_patterns = Counter(self.metrics['access_allowed'])
         assert access_patterns[True] / len(test_traffic) < 0.5, \
             "Too many cross-segment accesses allowed"
-        
+
         # Verify resource utilization
         cpu_usage = self.metrics['cpu_usage']
         assert statistics.stdev(cpu_usage) < 10, \
             "High CPU usage standard deviation"
-        
+
         memory_usage = self.metrics['memory_usage']
         assert statistics.stdev(memory_usage) < 5, \
             "High memory usage standard deviation"
-        
+
         # Verify segment management
         segment_metrics = service.get_segment_metrics()
         assert segment_metrics['total_segments'] == len(segments), \
@@ -24125,7 +24133,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_firewall_rule_edge_cases(self, network_test_client, test_data_generator):
         """Test firewall rules with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid rule configurations
         - Rule priority conflicts
@@ -24134,7 +24142,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Rule update and deletion
         """
         service, _ = network_test_client
-        
+
         # Test invalid rule configurations
         invalid_rules = [
             {
@@ -24165,12 +24173,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'action': 'allow'
             }
         ]
-        
+
         for rule in invalid_rules:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_firewall_rule(rule)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test rule priority conflicts
         conflicting_rules = [
             {
@@ -24194,11 +24202,11 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in conflicting_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule conflict resolution
         test_traffic = {
             'source': '192.168.1.100',
@@ -24206,10 +24214,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'protocol': 'tcp',
             'port': 80
         }
-        
+
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # Higher priority rule should take effect
-        
+
         # Test rule overlap handling
         overlapping_rules = [
             {
@@ -24233,15 +24241,15 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'priority': 200
             }
         ]
-        
+
         for rule in overlapping_rules:
             result = service.configure_firewall_rule(rule)
             assert result['status'] == 'success'
-        
+
         # Verify rule overlap resolution
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'allow'  # More specific rule should take effect
-        
+
         # Test maximum rule limit
         max_rules = 1000
         for i in range(max_rules + 1):
@@ -24261,7 +24269,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_firewall_rule(rule)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test rule update and deletion
         rule_to_update = {
             'id': 'FW-UPDATE-1',
@@ -24272,24 +24280,24 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'ports': ['80'],
             'action': 'allow'
         }
-        
+
         # Add rule
         result = service.configure_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Update rule
         rule_to_update['action'] = 'deny'
         result = service.update_firewall_rule(rule_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.check_firewall_rule(**test_traffic)
         assert result['action'] == 'deny'
-        
+
         # Delete rule
         result = service.delete_firewall_rule(rule_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.check_firewall_rule(**test_traffic)
@@ -24297,7 +24305,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 
     def test_network_segmentation_edge_cases(self, network_test_client, test_data_generator):
         """Test network segmentation with edge cases and boundary conditions.
-        
+
         This test verifies:
         - Invalid segment configurations
         - Segment overlap handling
@@ -24306,7 +24314,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
         - Cross-segment access edge cases
         """
         service, _ = network_test_client
-        
+
         # Test invalid segment configurations
         invalid_segments = [
             {
@@ -24334,12 +24342,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in invalid_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'invalid' in str(exc_info.value).lower()
-        
+
         # Test segment overlap handling
         overlapping_segments = [
             {
@@ -24359,12 +24367,12 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in overlapping_segments:
             with pytest.raises(SecurityException) as exc_info:
                 service.configure_network_segment(segment)
             assert 'overlap' in str(exc_info.value).lower()
-        
+
         # Test maximum segment limit
         max_segments = 100
         for i in range(max_segments + 1):
@@ -24383,7 +24391,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 with pytest.raises(SecurityException) as exc_info:
                     service.configure_network_segment(segment)
                 assert 'maximum' in str(exc_info.value).lower()
-        
+
         # Test segment update and deletion
         segment_to_update = {
             'id': 'SEG-UPDATE-1',
@@ -24393,29 +24401,29 @@ class TestNetworkAccessControl(TestNetworkSecurity):
             'allowed_protocols': ['http'],
             'access_policy': 'restricted'
         }
-        
+
         # Add segment
         result = service.configure_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Update segment
         segment_to_update['allowed_protocols'] = ['http', 'https']
         result = service.update_network_segment(segment_to_update)
         assert result['status'] == 'success'
-        
+
         # Verify update
         result = service.get_segment_configuration(segment_to_update['id'])
         assert set(result['configuration']['allowed_protocols']) == {'http', 'https'}
-        
+
         # Delete segment
         result = service.delete_network_segment(segment_to_update['id'])
         assert result['status'] == 'success'
-        
+
         # Verify deletion
         with pytest.raises(SecurityException) as exc_info:
             service.get_segment_configuration(segment_to_update['id'])
         assert 'not found' in str(exc_info.value).lower()
-        
+
         # Test cross-segment access edge cases
         segments = [
             {
@@ -24435,10 +24443,10 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'access_policy': 'restricted'
             }
         ]
-        
+
         for segment in segments:
             service.configure_network_segment(segment)
-        
+
         # Test edge cases for cross-segment access
         edge_cases = [
             {
@@ -24484,7 +24492,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
                 'description': 'Invalid destination address'
             }
         ]
-        
+
         for case in edge_cases:
             result = service.check_segment_access(
                 source=case['source'],
@@ -24498,7 +24506,7 @@ class TestNetworkAccessControl(TestNetworkSecurity):
 @pytest.mark.network
 class TestNetworkMonitoring:
     """Test network monitoring features.
-    
+
     This test suite verifies the network monitoring system's ability to detect,
     analyze, and respond to network security events and threats.
     """
@@ -24506,7 +24514,7 @@ class TestNetworkMonitoring:
     @pytest.fixture(autouse=True)
     def setup_teardown(self, network_test_client):
         """Setup and teardown for each test.
-        
+
         Args:
             network_test_client: Fixture providing network service and config
         """
@@ -24518,13 +24526,13 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring(self, network_test_client, mock_network_traffic, security_config):
         """Test network traffic monitoring.
-        
+
         This test verifies:
         - Traffic capture and analysis
         - Protocol and port monitoring
         - Anomaly detection
         - Traffic logging and retention
-        
+
         Test cases:
         1. Monitor normal traffic patterns
         2. Detect traffic anomalies
@@ -24532,7 +24540,7 @@ class TestNetworkMonitoring:
         4. Test traffic analysis
         """
         service, config = network_test_client
-        
+
         # Generate test traffic
         test_traffic = mock_network_traffic([
             {
@@ -24572,46 +24580,46 @@ class TestNetworkMonitoring:
                 'description': 'Potential DDoS traffic'
             }
         ])
-        
+
         # Monitor traffic
         for traffic in test_traffic:
             result = service.monitor_traffic(traffic)
             assert result['monitored']
             assert result['timestamp'] is not None
-        
+
         # Test traffic analysis
         analysis = service.analyze_traffic(
             start_time=datetime.now() - timedelta(minutes=5),
             end_time=datetime.now()
         )
-        
+
         assert 'traffic_summary' in analysis
         assert 'protocol_distribution' in analysis
         assert 'top_talkers' in analysis
         assert 'anomalies' in analysis
-        
+
         # Verify analysis metrics
         assert all(count >= 0 for count in analysis['traffic_summary'].values())
         assert all(0 <= percentage <= 100 for percentage in analysis['protocol_distribution'].values())
         assert len(analysis['top_talkers']) > 0
         assert len(analysis['anomalies']) > 0
-        
+
         # Test anomaly detection
         anomalies = service.detect_traffic_anomalies()
         assert 'detected_anomalies' in anomalies
         assert 'severity_levels' in anomalies
         assert 'recommended_actions' in anomalies
-        
+
         # Verify anomaly detection
         assert any(anomaly['type'] == 'potential_ddos' for anomaly in anomalies['detected_anomalies'])
-        assert all(level in ['low', 'medium', 'high', 'critical'] 
+        assert all(level in ['low', 'medium', 'high', 'critical']
                   for level in anomalies['severity_levels'].values())
-        
+
         # Test traffic logging
         logs = service.get_traffic_logs()
         assert len(logs) == len(test_traffic)
         assert all(log['logged'] for log in logs)
-        
+
         # Verify log retention
         retention = service.check_traffic_log_retention()
         assert retention['compliance']
@@ -24620,7 +24628,7 @@ class TestNetworkMonitoring:
 
     def test_traffic_monitoring_performance(self, network_test_client, stress_test_config):
         """Test traffic monitoring performance under load.
-        
+
         This test verifies:
         - Monitoring system performance
         - Data processing capacity
@@ -24629,7 +24637,7 @@ class TestNetworkMonitoring:
         """
         service, _ = network_test_client
         config = stress_test_config
-        
+
         # Generate high-volume test traffic
         def generate_traffic_burst():
             traffic = []
@@ -24643,7 +24651,7 @@ class TestNetworkMonitoring:
                     'packets': random.randint(1, 10)
                 })
             return traffic
-        
+
         # Run performance test
         start_time = time.time()
         results = {
@@ -24652,11 +24660,11 @@ class TestNetworkMonitoring:
             'processing_errors': 0,
             'performance_metrics': []
         }
-        
+
         while time.time() - start_time < config['test_duration']:
             # Generate and process traffic burst
             traffic_burst = generate_traffic_burst()
-            
+
             # Process traffic with timing
             burst_start = time.time()
             for traffic in traffic_burst:
@@ -24667,7 +24675,7 @@ class TestNetworkMonitoring:
                         results['alerts_generated'] += 1
                 except Exception as e:
                     results['processing_errors'] += 1
-            
+
             # Record performance metrics
             burst_duration = time.time() - burst_start
             results['performance_metrics'].append({
@@ -24676,26 +24684,26 @@ class TestNetworkMonitoring:
                 'processing_time': burst_duration,
                 'throughput': len(traffic_burst) / burst_duration
             })
-            
+
             time.sleep(config['request_interval'])
-        
+
         # Verify performance metrics
         total_traffic = results['processed_traffic']
         assert total_traffic > 0, "No traffic was processed during performance test"
-        
+
         # Calculate average throughput
         throughputs = [m['throughput'] for m in results['performance_metrics']]
         avg_throughput = sum(throughputs) / len(throughputs)
         assert avg_throughput >= 1000, f"Average throughput {avg_throughput} below threshold 1000 events/second"
-        
+
         # Verify error rate
         error_rate = results['processing_errors'] / total_traffic
         assert error_rate <= 0.001, f"Error rate {error_rate} above threshold 0.001"
-        
+
         # Verify alert generation
         alert_rate = results['alerts_generated'] / total_traffic
         assert 0 <= alert_rate <= 0.1, f"Alert rate {alert_rate} outside expected range [0, 0.1]"
-        
+
         # Verify resource utilization
         metrics = service.get_monitoring_metrics()
         assert metrics['cpu_usage'] < 80, f"High CPU usage: {metrics['cpu_usage']}%"
@@ -24705,13 +24713,13 @@ class TestNetworkMonitoring:
 
     def test_threat_detection(self, network_test_client, mock_network_traffic, security_config):
         """Test network threat detection.
-        
+
         This test verifies:
         - Threat detection and analysis
         - Attack pattern recognition
         - Threat intelligence integration
         - Automated response
-        
+
         Test cases:
         1. Detect common attack patterns
         2. Verify threat intelligence
@@ -24719,7 +24727,7 @@ class TestNetworkMonitoring:
         4. Monitor threat detection effectiveness
         """
         service, config = network_test_client
-        
+
         # Generate test threats
         test_threats = [
             {
@@ -24749,7 +24757,7 @@ class TestNetworkMonitoring:
                 'description': 'Data exfiltration attempt'
             }
         ]
-        
+
         # Test threat detection
         for threat in test_threats:
             detection = service.detect_threat(threat)
@@ -24757,45 +24765,45 @@ class TestNetworkMonitoring:
             assert detection['threat_type'] == threat['type']
             assert 'severity' in detection
             assert 'confidence' in detection
-            
+
             # Verify detection metrics
             assert detection['severity'] in ['low', 'medium', 'high', 'critical']
             assert 0 <= detection['confidence'] <= 1
-        
+
         # Test attack pattern recognition
         patterns = service.recognize_attack_patterns()
         assert 'detected_patterns' in patterns
         assert 'pattern_confidence' in patterns
         assert 'related_threats' in patterns
-        
+
         # Verify pattern recognition
         assert any(pattern['type'] == 'port_scan' for pattern in patterns['detected_patterns'])
         assert all(0 <= confidence <= 1 for confidence in patterns['pattern_confidence'].values())
-        
+
         # Test threat intelligence
         intelligence = service.check_threat_intelligence()
         assert 'known_threats' in intelligence
         assert 'threat_indicators' in intelligence
         assert 'recommended_actions' in intelligence
-        
+
         # Verify threat intelligence
         assert len(intelligence['known_threats']) > 0
         assert all(isinstance(indicator, dict) for indicator in intelligence['threat_indicators'])
-        
+
         # Test response automation
         for threat in test_threats:
             response = service.automate_threat_response(threat)
             assert response['action_taken']
             assert 'response_type' in response
             assert 'effectiveness' in response
-            
+
             # Verify response metrics
             assert response['response_type'] in ['block', 'alert', 'monitor', 'investigate']
             assert 0 <= response['effectiveness'] <= 1
 
     def test_threat_detection_accuracy(self, network_test_client):
         """Test threat detection accuracy and false positive handling.
-        
+
         This test verifies:
         - Detection accuracy
         - False positive rate
@@ -24803,10 +24811,10 @@ class TestNetworkMonitoring:
         - Detection confidence
         """
         service, _ = network_test_client
-        
+
         # Generate test dataset
         test_cases = []
-        
+
         # Known attack patterns
         attack_patterns = [
             {
@@ -24836,7 +24844,7 @@ class TestNetworkMonitoring:
                 'description': 'DNS exfiltration'
             }
         ]
-        
+
         # Normal traffic patterns
         normal_patterns = [
             {
@@ -24858,10 +24866,10 @@ class TestNetworkMonitoring:
                 'description': 'Normal database traffic'
             }
         ]
-        
+
         test_cases.extend(attack_patterns)
         test_cases.extend(normal_patterns)
-        
+
         # Run accuracy test
         results = {
             'true_positives': 0,
@@ -24870,10 +24878,10 @@ class TestNetworkMonitoring:
             'false_negatives': 0,
             'detection_confidence': []
         }
-        
+
         for case in test_cases:
             detection = service.detect_threat(case)
-            
+
             if case['expected_detection']:
                 if detection['detected']:
                     results['true_positives'] += 1
@@ -24884,32 +24892,32 @@ class TestNetworkMonitoring:
                     results['false_positives'] += 1
                 else:
                     results['true_negatives'] += 1
-            
+
             if detection['detected']:
                 results['detection_confidence'].append(detection['confidence'])
-        
+
         # Calculate accuracy metrics
         total_cases = len(test_cases)
         accuracy = (results['true_positives'] + results['true_negatives']) / total_cases
         precision = results['true_positives'] / (results['true_positives'] + results['false_positives']) if (results['true_positives'] + results['false_positives']) > 0 else 0
         recall = results['true_positives'] / (results['true_positives'] + results['false_negatives']) if (results['true_positives'] + results['false_negatives']) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         # Verify accuracy metrics
         assert accuracy >= 0.95, f"Detection accuracy {accuracy} below threshold 0.95"
         assert precision >= 0.90, f"Detection precision {precision} below threshold 0.90"
         assert recall >= 0.90, f"Detection recall {recall} below threshold 0.90"
         assert f1_score >= 0.90, f"Detection F1 score {f1_score} below threshold 0.90"
-        
+
         # Verify confidence scores
         if results['detection_confidence']:
             avg_confidence = sum(results['detection_confidence']) / len(results['detection_confidence'])
             assert avg_confidence >= 0.80, f"Average detection confidence {avg_confidence} below threshold 0.80"
-        
+
         # Verify false positive rate
         false_positive_rate = results['false_positives'] / (results['false_positives'] + results['true_negatives'])
         assert false_positive_rate <= 0.01, f"False positive rate {false_positive_rate} above threshold 0.01"
-        
+
         # Verify false negative rate
         false_negative_rate = results['false_negatives'] / (results['false_negatives'] + results['true_positives'])
         assert false_negative_rate <= 0.01, f"False negative rate {false_negative_rate} above threshold 0.01"
@@ -24918,20 +24926,20 @@ class TestNetworkMonitoring:
 @pytest.mark.network
 class TestNetworkVulnerability:
     """Test network vulnerability assessment features.
-    
+
     This test suite verifies the network vulnerability assessment system's
     ability to identify, analyze, and remediate network security vulnerabilities.
     """
 
     def test_vulnerability_scanning(self, network_test_client, security_config):
         """Test network vulnerability scanning.
-        
+
         This test verifies:
         - Vulnerability scanning configuration
         - Scan execution and scheduling
         - Result analysis and reporting
         - Remediation tracking
-        
+
         Test cases:
         1. Configure and run vulnerability scans
         2. Analyze scan results
@@ -24939,7 +24947,7 @@ class TestNetworkVulnerability:
         4. Verify scan effectiveness
         """
         service, config = network_test_client
-        
+
         # Configure scan targets
         scan_targets = [
             {
@@ -24967,41 +24975,41 @@ class TestNetworkVulnerability:
                 }
             }
         ]
-        
+
         # Configure scan targets
         for target in scan_targets:
             result = service.configure_scan_target(target)
             assert result['status'] == 'success'
             assert result['target_id'] == target['id']
-        
+
         # Run vulnerability scan
         scan_results = service.run_vulnerability_scan()
-        
+
         # Verify scan results
         assert 'scan_id' in scan_results
         assert 'start_time' in scan_results
         assert 'end_time' in scan_results
         assert 'vulnerabilities' in scan_results
-        
+
         # Test result analysis
         analysis = service.analyze_scan_results(scan_results['scan_id'])
         assert 'risk_score' in analysis
         assert 'vulnerability_summary' in analysis
         assert 'affected_systems' in analysis
         assert 'recommendations' in analysis
-        
+
         # Verify analysis metrics
         assert 0 <= analysis['risk_score'] <= 1
         assert all(count >= 0 for count in analysis['vulnerability_summary'].values())
         assert len(analysis['affected_systems']) > 0
         assert len(analysis['recommendations']) > 0
-        
+
         # Test remediation tracking
         remediation = service.track_vulnerability_remediation()
         assert 'open_vulnerabilities' in remediation
         assert 'remediation_progress' in remediation
         assert 'completion_estimates' in remediation
-        
+
         # Verify remediation metrics
         assert all(isinstance(vuln, dict) for vuln in remediation['open_vulnerabilities'])
         assert 0 <= remediation['remediation_progress'] <= 100
@@ -25009,13 +25017,13 @@ class TestNetworkVulnerability:
 
     def test_security_assessment(self, network_test_client, security_config):
         """Test network security assessment.
-        
+
         This test verifies:
         - Security posture assessment
         - Control effectiveness evaluation
         - Risk assessment and scoring
         - Improvement tracking
-        
+
         Test cases:
         1. Assess overall security posture
         2. Evaluate control effectiveness
@@ -25023,52 +25031,52 @@ class TestNetworkVulnerability:
         4. Track security improvements
         """
         service, config = network_test_client
-        
+
         # Run security assessment
         assessment = service.assess_network_security()
-        
+
         # Verify assessment results
         assert 'overall_score' in assessment
         assert 'control_effectiveness' in assessment
         assert 'risk_assessment' in assessment
         assert 'improvement_areas' in assessment
-        
+
         # Verify assessment metrics
         assert 0 <= assessment['overall_score'] <= 1
         assert all(0 <= score <= 1 for score in assessment['control_effectiveness'].values())
-        
+
         # Test control effectiveness
         controls = service.assess_security_controls()
         assert 'control_coverage' in controls
         assert 'control_effectiveness' in controls
         assert 'control_gaps' in controls
-        
+
         # Verify control metrics
         assert 0 <= controls['control_coverage'] <= 1
         assert all(0 <= score <= 1 for score in controls['control_effectiveness'].values())
         assert all(isinstance(gap, dict) for gap in controls['control_gaps'])
-        
+
         # Test risk assessment
         risk = service.assess_network_risk()
         assert 'risk_score' in risk
         assert 'risk_factors' in risk
         assert 'mitigation_priorities' in risk
-        
+
         # Verify risk metrics
         assert 0 <= risk['risk_score'] <= 1
         assert all(isinstance(factor, dict) for factor in risk['risk_factors'])
-        assert all(priority in ['low', 'medium', 'high', 'critical'] 
+        assert all(priority in ['low', 'medium', 'high', 'critical']
                   for priority in risk['mitigation_priorities'].values())
-        
+
         # Test improvement tracking
         improvements = service.track_security_improvements()
         assert 'improvement_areas' in improvements
         assert 'implementation_status' in improvements
         assert 'effectiveness_metrics' in improvements
-        
+
         # Verify improvement metrics
         assert all(isinstance(area, dict) for area in improvements['improvement_areas'])
-        assert all(status in ['planned', 'in_progress', 'completed'] 
+        assert all(status in ['planned', 'in_progress', 'completed']
                   for status in improvements['implementation_status'].values())
         assert all(0 <= metric <= 1 for metric in improvements['effectiveness_metrics'].values())
 
@@ -25076,7 +25084,7 @@ class TestNetworkVulnerability:
 @pytest.mark.threat_detection
 class TestAdvancedThreatDetection:
     """Test advanced threat detection capabilities.
-    
+
     This test suite verifies the system's ability to detect and respond to
     sophisticated threats, including zero-day attacks, advanced persistent
     threats (APTs), and complex attack patterns.
@@ -25084,7 +25092,7 @@ class TestAdvancedThreatDetection:
 
     def test_zero_day_detection(self, security_test_generator, mock_security_services):
         """Test zero-day attack detection capabilities.
-        
+
         This test verifies:
         - Behavioral analysis
         - Anomaly detection
@@ -25093,10 +25101,10 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate sophisticated attack patterns
         attack_patterns = generator.generate_threat_data(count=50)
-        
+
         # Add zero-day characteristics
         for pattern in attack_patterns:
             pattern.metadata.update({
@@ -25106,7 +25114,7 @@ class TestAdvancedThreatDetection:
                     'polymorphic', 'obfuscation', 'encryption', 'fragmentation'
                 ], k=random.randint(1, 3))
             })
-        
+
         # Test detection
         detection_results = []
         for pattern in attack_patterns:
@@ -25114,12 +25122,12 @@ class TestAdvancedThreatDetection:
                 threat_type=pattern.threat_type).time():
                 result = services['threat'].detect_threat(pattern)
                 detection_results.append(result)
-        
+
         # Verify detection effectiveness
         detected = [r for r in detection_results if r['detected']]
         detection_rate = len(detected) / len(attack_patterns)
         assert detection_rate >= 0.85, f"Zero-day detection rate {detection_rate} below threshold"
-        
+
         # Verify response effectiveness
         for result in detected:
             assert 'response_time' in result
@@ -25129,7 +25137,7 @@ class TestAdvancedThreatDetection:
 
     def test_apt_detection(self, security_test_generator, mock_security_services):
         """Test Advanced Persistent Threat (APT) detection.
-        
+
         This test verifies:
         - Long-term pattern analysis
         - Multi-stage attack detection
@@ -25138,12 +25146,12 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate APT-like attack sequence
         attack_sequence = []
-        stages = ['initial_access', 'persistence', 'privilege_escalation', 
+        stages = ['initial_access', 'persistence', 'privilege_escalation',
                  'lateral_movement', 'data_exfiltration']
-        
+
         for stage in stages:
             # Generate multiple events for each stage
             stage_events = generator.generate_threat_data(count=20)
@@ -25154,19 +25162,19 @@ class TestAdvancedThreatDetection:
                     'timeline': datetime.now() + timedelta(hours=random.randint(1, 24))
                 })
             attack_sequence.extend(stage_events)
-        
+
         # Test APT detection
         detection_results = []
         for event in attack_sequence:
             result = services['threat'].detect_apt_activity(event)
             detection_results.append(result)
-        
+
         # Verify APT detection
         stage_detections = defaultdict(int)
         for result in detection_results:
             if result['detected']:
                 stage_detections[result['attack_stage']] += 1
-        
+
         # Verify detection across all stages
         for stage in stages:
             detection_rate = stage_detections[stage] / 20  # 20 events per stage
@@ -25174,7 +25182,7 @@ class TestAdvancedThreatDetection:
 
     def test_complex_attack_patterns(self, security_test_generator, mock_security_services):
         """Test detection of complex attack patterns.
-        
+
         This test verifies:
         - Multi-vector attack detection
         - Attack chain analysis
@@ -25183,7 +25191,7 @@ class TestAdvancedThreatDetection:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate complex attack patterns
         attack_patterns = []
         pattern_types = [
@@ -25192,11 +25200,11 @@ class TestAdvancedThreatDetection:
             'blended_threat',
             'polymorphic_attack'
         ]
-        
+
         for pattern_type in pattern_types:
             # Generate base attack data
             base_attacks = generator.generate_threat_data(count=30)
-            
+
             # Add pattern-specific characteristics
             for attack in base_attacks:
                 attack.metadata.update({
@@ -25209,21 +25217,21 @@ class TestAdvancedThreatDetection:
                     ], k=random.randint(1, 3))
                 })
             attack_patterns.extend(base_attacks)
-        
+
         # Test pattern detection
         detection_results = []
         for pattern in attack_patterns:
             result = services['threat'].detect_complex_pattern(pattern)
             detection_results.append(result)
-        
+
         # Verify detection accuracy
         true_positives = sum(1 for r in detection_results if r['detected'] and r['is_attack'])
         false_positives = sum(1 for r in detection_results if r['detected'] and not r['is_attack'])
         total_attacks = sum(1 for r in detection_results if r['is_attack'])
-        
+
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / total_attacks if total_attacks > 0 else 0
-        
+
         assert precision >= 0.90, f"Pattern detection precision {precision} below threshold"
         assert recall >= 0.90, f"Pattern detection recall {recall} below threshold"
 
@@ -25231,14 +25239,14 @@ class TestAdvancedThreatDetection:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Test security system performance under various conditions.
-    
+
     This test suite verifies the performance characteristics of the security
     system under different load conditions and attack scenarios.
     """
 
     def test_high_load_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under high load.
-        
+
         This test verifies:
         - System performance under sustained high load
         - Resource utilization
@@ -25247,59 +25255,59 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate high load test data
         test_data = generator.generate_performance_test_data(
             duration=300,  # 5 minutes
             request_rate=1000  # 1000 requests per second
         )
-        
+
         # Run performance test
         start_time = time.time()
         results = []
         resource_metrics = []
-        
+
         for request in test_data:
             # Record resource metrics
             resource_metrics.append(services['monitoring'].get_resource_metrics())
-            
+
             # Process request
             with services['threat'].threat_detection_latency.labels(
                 threat_type='performance_test').time():
                 result = services['threat'].process_request(request)
                 results.append(result)
-        
+
         end_time = time.time()
-        
+
         # Calculate performance metrics
         total_time = end_time - start_time
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         failed_requests = sum(1 for r in results if r['status'] == 'error')
-        
+
         # Calculate response time percentiles
         response_times = [r['response_time'] for r in results if 'response_time' in r]
         p95_response_time = np.percentile(response_times, 95)
         p99_response_time = np.percentile(response_times, 99)
-        
+
         # Verify performance metrics
         assert total_requests >= 290000, f"Request throughput {total_requests} below threshold"
         assert (successful_requests / total_requests) >= 0.99, "Success rate below threshold"
         assert p95_response_time < 0.1, f"P95 response time {p95_response_time} above threshold"
         assert p99_response_time < 0.2, f"P99 response time {p99_response_time} above threshold"
-        
+
         # Verify resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 80, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 80, f"Average memory usage {avg_memory}% above threshold"
         assert avg_network < 80, f"Average network usage {avg_network}% above threshold"
 
     def test_burst_traffic_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under burst traffic.
-        
+
         This test verifies:
         - System behavior under sudden traffic spikes
         - Burst handling capacity
@@ -25308,7 +25316,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate burst traffic pattern
         burst_patterns = [
             {'duration': 10, 'rate': 5000},  # 5k req/s for 10s
@@ -25317,22 +25325,22 @@ class TestSecurityPerformance:
             {'duration': 30, 'rate': 100},   # Normal traffic
             {'duration': 15, 'rate': 8000}   # 8k req/s for 15s
         ]
-        
+
         results = []
         resource_metrics = []
-        
+
         for pattern in burst_patterns:
             start_time = time.time()
             end_time = start_time + pattern['duration']
-            
+
             while time.time() < end_time:
                 # Generate burst requests
-                requests = [generator._generate_request() 
+                requests = [generator._generate_request()
                           for _ in range(pattern['rate'])]
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process burst requests
                 burst_results = []
                 for request in requests:
@@ -25340,21 +25348,21 @@ class TestSecurityPerformance:
                         threat_type='burst_test').time():
                         result = services['threat'].process_request(request)
                         burst_results.append(result)
-                
+
                 results.extend(burst_results)
-                
+
                 # Control request rate
                 time.sleep(1)
-        
+
         # Calculate burst performance metrics
         total_requests = len(results)
         successful_requests = sum(1 for r in results if r['status'] == 'success')
         response_times = [r['response_time'] for r in results if 'response_time' in r]
-        
+
         # Verify burst handling
         assert (successful_requests / total_requests) >= 0.99, "Burst success rate below threshold"
         assert np.percentile(response_times, 95) < 0.2, "P95 response time during burst above threshold"
-        
+
         # Verify resource recovery
         final_metrics = resource_metrics[-1]
         assert final_metrics['cpu_usage'] < 60, "CPU usage after burst above threshold"
@@ -25363,7 +25371,7 @@ class TestSecurityPerformance:
 
     def test_concurrent_attack_performance(self, security_test_generator, mock_security_services):
         """Test security system performance under concurrent attacks.
-        
+
         This test verifies:
         - System behavior under multiple concurrent attacks
         - Attack isolation
@@ -25372,7 +25380,7 @@ class TestSecurityPerformance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Generate concurrent attack scenarios
         attack_scenarios = [
             {
@@ -25394,15 +25402,15 @@ class TestSecurityPerformance:
                 'targets': 2
             }
         ]
-        
+
         results = defaultdict(list)
         resource_metrics = []
-        
+
         # Run concurrent attack scenarios
         for scenario in attack_scenarios:
             start_time = time.time()
             end_time = start_time + scenario['duration']
-            
+
             while time.time() < end_time:
                 # Generate attack requests
                 attack_requests = []
@@ -25411,53 +25419,53 @@ class TestSecurityPerformance:
                     request['attack_type'] = scenario['type']
                     request['target'] = f"target_{random.randint(1, scenario['targets'])}"
                     attack_requests.append(request)
-                
+
                 # Record resource metrics
                 resource_metrics.append(services['monitoring'].get_resource_metrics())
-                
+
                 # Process attack requests
                 for request in attack_requests:
                     with services['threat'].threat_detection_latency.labels(
                         threat_type=scenario['type']).time():
                         result = services['threat'].process_request(request)
                         results[scenario['type']].append(result)
-                
+
                 time.sleep(1)
-        
+
         # Verify concurrent attack handling
         for attack_type, attack_results in results.items():
             # Calculate attack-specific metrics
             total_requests = len(attack_results)
-            successful_detections = sum(1 for r in attack_results 
+            successful_detections = sum(1 for r in attack_results
                                      if r['detected'] and r['is_attack'])
-            false_positives = sum(1 for r in attack_results 
+            false_positives = sum(1 for r in attack_results
                                 if r['detected'] and not r['is_attack'])
-            
+
             # Verify detection accuracy
             precision = successful_detections / (successful_detections + false_positives) \
                        if (successful_detections + false_positives) > 0 else 0
             assert precision >= 0.95, f"Detection precision for {attack_type} below threshold"
-            
+
             # Verify response times
-            response_times = [r['response_time'] for r in attack_results 
+            response_times = [r['response_time'] for r in attack_results
                             if 'response_time' in r]
             assert np.percentile(response_times, 95) < 0.2, \
                    f"P95 response time for {attack_type} above threshold"
-        
+
         # Verify overall resource utilization
         avg_cpu = np.mean([m['cpu_usage'] for m in resource_metrics])
         avg_memory = np.mean([m['memory_usage'] for m in resource_metrics])
         avg_network = np.mean([m['network_usage'] for m in resource_metrics])
-        
+
         assert avg_cpu < 85, f"Average CPU usage {avg_cpu}% above threshold"
         assert avg_memory < 85, f"Average memory usage {avg_memory}% above threshold"
-        assert avg_network < 85, f"Average network usage {avg_network}% above threshold" 
+        assert avg_network < 85, f"Average network usage {avg_network}% above threshold"
 
 @pytest.mark.security
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Test security compliance and validation features.
-    
+
     This test suite verifies the system's compliance with security standards
     and best practices, including regulatory requirements, security policies,
     and industry standards.
@@ -25465,7 +25473,7 @@ class TestSecurityCompliance:
 
     def test_security_policy_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with security policies.
-        
+
         This test verifies:
         - Policy enforcement
         - Policy validation
@@ -25474,7 +25482,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security policies
         security_policies = [
             {
@@ -25511,18 +25519,18 @@ class TestSecurityCompliance:
                 'compliance_threshold': 0.95
             }
         ]
-        
+
         # Test policy compliance
         compliance_results = {}
         for policy in security_policies:
             # Generate test data for policy validation
             test_data = generator.generate_threat_data(count=20)
-            
+
             # Validate policy compliance
             result = services['compliance'].validate_policy_compliance(
                 policy, test_data)
             compliance_results[policy['id']] = result
-        
+
         # Verify compliance results
         for policy_id, result in compliance_results.items():
             assert result['compliant'], f"Policy {policy_id} compliance check failed"
@@ -25530,14 +25538,14 @@ class TestSecurityCompliance:
                    f"Policy {policy_id} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"Policy {policy_id} has non-compliant requirements"
-        
+
         # Test compliance reporting
         report = services['compliance'].generate_compliance_report()
         assert 'overall_compliance' in report
         assert 'policy_compliance' in report
         assert 'requirement_status' in report
         assert 'remediation_actions' in report
-        
+
         # Verify report metrics
         assert report['overall_compliance'] >= 0.95, "Overall compliance below threshold"
         assert all(score >= 0.95 for score in report['policy_compliance'].values()), \
@@ -25546,7 +25554,7 @@ class TestSecurityCompliance:
 
     def test_regulatory_compliance(self, security_test_generator, mock_security_services):
         """Test compliance with regulatory requirements.
-        
+
         This test verifies:
         - Regulatory requirement validation
         - Compliance evidence collection
@@ -25555,7 +25563,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define regulatory requirements
         regulatory_requirements = [
             {
@@ -25589,18 +25597,18 @@ class TestSecurityCompliance:
                 ]
             }
         ]
-        
+
         # Test regulatory compliance
         compliance_results = {}
         for standard in regulatory_requirements:
             # Generate test data for compliance validation
             test_data = generator.generate_threat_data(count=30)
-            
+
             # Validate regulatory compliance
             result = services['compliance'].validate_regulatory_compliance(
                 standard, test_data)
             compliance_results[standard['standard']] = result
-        
+
         # Verify compliance results
         for standard, result in compliance_results.items():
             assert result['compliant'], f"{standard} compliance check failed"
@@ -25608,27 +25616,27 @@ class TestSecurityCompliance:
                    f"{standard} compliance score below threshold"
             assert all(req['compliant'] for req in result['requirement_checks']), \
                    f"{standard} has non-compliant requirements"
-        
+
         # Test compliance evidence
         evidence = services['compliance'].collect_compliance_evidence()
         assert 'control_evidence' in evidence
         assert 'audit_trails' in evidence
         assert 'compliance_documents' in evidence
-        
+
         # Verify evidence collection
         for standard in regulatory_requirements:
             assert standard['standard'] in evidence['control_evidence'], \
                    f"Missing evidence for {standard['standard']}"
-            assert all(req['id'] in evidence['control_evidence'][standard['standard']] 
+            assert all(req['id'] in evidence['control_evidence'][standard['standard']]
                       for req in standard['requirements']), \
                    f"Missing evidence for requirements in {standard['standard']}"
-        
+
         # Test audit trail
         audit_trail = services['compliance'].get_audit_trail()
         assert 'compliance_checks' in audit_trail
         assert 'policy_changes' in audit_trail
         assert 'security_events' in audit_trail
-        
+
         # Verify audit trail
         assert all(check['timestamp'] for check in audit_trail['compliance_checks']), \
                "Missing timestamps in compliance checks"
@@ -25639,7 +25647,7 @@ class TestSecurityCompliance:
 
     def test_security_control_validation(self, security_test_generator, mock_security_services):
         """Test validation of security controls.
-        
+
         This test verifies:
         - Control effectiveness
         - Control coverage
@@ -25648,7 +25656,7 @@ class TestSecurityCompliance:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Define security controls
         security_controls = [
             {
@@ -25670,54 +25678,54 @@ class TestSecurityCompliance:
                 'metrics': ['alert_rate', 'detection_rate', 'false_positive_rate']
             }
         ]
-        
+
         # Test control validation
         validation_results = {}
         for control in security_controls:
             # Generate test data for control validation
             test_data = generator.generate_threat_data(count=25)
-            
+
             # Validate control effectiveness
             result = services['compliance'].validate_security_control(
                 control, test_data)
             validation_results[control['id']] = result
-        
+
         # Verify validation results
         for control_id, result in validation_results.items():
             assert result['effective'], f"Control {control_id} effectiveness check failed"
             assert result['effectiveness_score'] >= 0.90, \
                    f"Control {control_id} effectiveness score below threshold"
-            assert all(metric['value'] >= metric['threshold'] 
+            assert all(metric['value'] >= metric['threshold']
                       for metric in result['metric_checks']), \
                    f"Control {control_id} has metrics below threshold"
-        
+
         # Test control monitoring
         monitoring_results = services['compliance'].monitor_security_controls()
         assert 'control_status' in monitoring_results
         assert 'metric_trends' in monitoring_results
         assert 'alerts' in monitoring_results
-        
+
         # Verify monitoring results
         for control in security_controls:
             assert control['id'] in monitoring_results['control_status'], \
                    f"Missing status for control {control['id']}"
-            assert all(metric in monitoring_results['metric_trends'][control['id']] 
+            assert all(metric in monitoring_results['metric_trends'][control['id']]
                       for metric in control['metrics']), \
                    f"Missing metric trends for control {control['id']}"
-        
+
         # Test control remediation
         remediation_results = services['compliance'].remediate_control_issues()
         assert 'remediation_actions' in remediation_results
         assert 'effectiveness_improvements' in remediation_results
         assert 'verification_results' in remediation_results
-        
+
         # Verify remediation results
         assert all(action['completed'] for action in remediation_results['remediation_actions']), \
                "Incomplete remediation actions"
-        assert all(improvement['verified'] 
+        assert all(improvement['verified']
                   for improvement in remediation_results['effectiveness_improvements']), \
                "Unverified effectiveness improvements"
-        assert all(result['successful'] 
+        assert all(result['successful']
                   for result in remediation_results['verification_results']), \
                "Unsuccessful verification results"
 
@@ -25725,7 +25733,7 @@ class TestSecurityCompliance:
 @pytest.mark.cloud
 class TestCloudSecurity:
     """Test cloud security features and controls.
-    
+
     This test suite verifies cloud security controls, including:
     - Cloud infrastructure security
     - Container security
@@ -25741,15 +25749,15 @@ class TestCloudSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_cloud_resources()
         self.service.reset_cloud_state()
-    
+
     def test_container_security(self, security_test_generator, mock_security_services):
         """Test container security controls.
-        
+
         This test verifies:
         - Container image security
         - Runtime security
@@ -25759,7 +25767,7 @@ class TestCloudSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test container image security
         image_tests = [
             {
@@ -25780,20 +25788,20 @@ class TestCloudSecurity:
                 ]
             }
         ]
-        
+
         for image in image_tests:
             # Scan container image
             scan_result = services['cloud'].scan_container_image(image)
             assert scan_result['scanned']
             assert 'vulnerabilities' in scan_result
             assert len(scan_result['vulnerabilities']) == len(image['vulnerabilities'])
-            
+
             # Verify vulnerability severity
             for vuln in scan_result['vulnerabilities']:
                 assert vuln['severity'] in ['low', 'medium', 'high', 'critical']
                 assert 'cve' in vuln
                 assert 'fix_available' in vuln
-        
+
         # Test container runtime security
         runtime_tests = [
             {
@@ -25811,7 +25819,7 @@ class TestCloudSecurity:
                 'expected_block': True
             }
         ]
-        
+
         for test in runtime_tests:
             # Test container creation
             result = services['cloud'].create_container(test)
@@ -25819,7 +25827,7 @@ class TestCloudSecurity:
             if not test['expected_block']:
                 assert 'container_id' in result
                 assert 'security_context' in result
-        
+
         # Test network isolation
         network_tests = [
             {
@@ -25837,13 +25845,13 @@ class TestCloudSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in network_tests:
             result = services['cloud'].test_container_connectivity(test)
             assert result['allowed'] == test['expected_allowed']
             if not test['expected_allowed']:
                 assert 'block_reason' in result
-        
+
         # Test resource limits
         resource_tests = [
             {
@@ -25859,7 +25867,7 @@ class TestCloudSecurity:
                 'expected_enforced': True
             }
         ]
-        
+
         for test in resource_tests:
             result = services['cloud'].verify_resource_limits(test)
             assert result['limits_enforced'] == test['expected_enforced']
@@ -25869,7 +25877,7 @@ class TestCloudSecurity:
 
     def test_serverless_security(self, security_test_generator, mock_security_services):
         """Test serverless security controls.
-        
+
         This test verifies:
         - Function security
         - Event security
@@ -25879,7 +25887,7 @@ class TestCloudSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test function security
         function_tests = [
             {
@@ -25897,7 +25905,7 @@ class TestCloudSecurity:
                 'expected_audit': False
             }
         ]
-        
+
         for test in function_tests:
             # Audit function permissions
             audit_result = services['cloud'].audit_function_permissions(test)
@@ -25905,7 +25913,7 @@ class TestCloudSecurity:
             assert audit_result['excessive_permissions'] == (not test['expected_audit'])
             if not test['expected_audit']:
                 assert 'recommended_permissions' in audit_result
-        
+
         # Test event security
         event_tests = [
             {
@@ -25921,14 +25929,14 @@ class TestCloudSecurity:
                 'expected_validation': False
             }
         ]
-        
+
         for test in event_tests:
             result = services['cloud'].validate_event_security(test)
             assert result['validated'] == test['expected_validation']
             if not test['expected_validation']:
                 assert 'validation_errors' in result
                 assert 'security_risks' in result
-        
+
         # Test resource isolation
         isolation_tests = [
             {
@@ -25944,14 +25952,14 @@ class TestCloudSecurity:
                 'expected_isolated': True
             }
         ]
-        
+
         for test in isolation_tests:
             result = services['cloud'].verify_resource_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             if test['expected_isolated']:
                 assert 'isolation_metrics' in result
                 assert 'resource_usage' in result
-        
+
         # Test data protection
         data_tests = [
             {
@@ -25967,7 +25975,7 @@ class TestCloudSecurity:
                 'expected_protected': True
             }
         ]
-        
+
         for test in data_tests:
             result = services['cloud'].verify_data_protection(test)
             assert result['protected'] == test['expected_protected']
@@ -25977,7 +25985,7 @@ class TestCloudSecurity:
 
     def test_cloud_storage_security(self, security_test_generator, mock_security_services):
         """Test cloud storage security controls.
-        
+
         This test verifies:
         - Storage encryption
         - Access control
@@ -25987,7 +25995,7 @@ class TestCloudSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test storage encryption
         encryption_tests = [
             {
@@ -26001,14 +26009,14 @@ class TestCloudSecurity:
                 'expected_encrypted': True
             }
         ]
-        
+
         for test in encryption_tests:
             result = services['cloud'].verify_storage_encryption(test)
             assert result['encrypted'] == test['expected_encrypted']
             if test['expected_encrypted']:
                 assert 'encryption_details' in result
                 assert 'key_rotation' in result
-        
+
         # Test access control
         access_tests = [
             {
@@ -26022,14 +26030,14 @@ class TestCloudSecurity:
                 'expected_blocked': False
             }
         ]
-        
+
         for test in access_tests:
             result = services['cloud'].verify_access_control(test)
             assert result['access_blocked'] == test['expected_blocked']
             if not test['expected_blocked']:
                 assert 'access_policy' in result
                 assert 'allowed_principals' in result
-        
+
         # Test data lifecycle
         lifecycle_tests = [
             {
@@ -26045,14 +26053,14 @@ class TestCloudSecurity:
                 'expected_enforced': True
             }
         ]
-        
+
         for test in lifecycle_tests:
             result = services['cloud'].verify_data_lifecycle(test)
             assert result['lifecycle_enforced'] == test['expected_enforced']
             if test['expected_enforced']:
                 assert 'lifecycle_rules' in result
                 assert 'compliance_status' in result
-        
+
         # Test backup and recovery
         backup_tests = [
             {
@@ -26066,7 +26074,7 @@ class TestCloudSecurity:
                 'expected_verified': True
             }
         ]
-        
+
         for test in backup_tests:
             result = services['cloud'].verify_backup_recovery(test)
             assert result['backup_verified'] == test['expected_verified']
@@ -26077,7 +26085,7 @@ class TestCloudSecurity:
 
     def test_cloud_identity_security(self, security_test_generator, mock_security_services):
         """Test cloud identity and access management security.
-        
+
         This test verifies:
         - Identity management
         - Access control
@@ -26087,7 +26095,7 @@ class TestCloudSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test identity management
         identity_tests = [
             {
@@ -26103,14 +26111,14 @@ class TestCloudSecurity:
                 'expected_secure': False
             }
         ]
-        
+
         for test in identity_tests:
             result = services['cloud'].verify_identity_security(test)
             assert result['secure'] == test['expected_secure']
             if not test['expected_secure']:
                 assert 'security_issues' in result
                 assert 'recommendations' in result
-        
+
         # Test access control
         access_tests = [
             {
@@ -26124,14 +26132,14 @@ class TestCloudSecurity:
                 'expected_audit': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['cloud'].audit_access_control(test)
             assert result['audited']
             assert result['excessive_permissions'] == (not test['expected_audit'])
             if not test['expected_audit']:
                 assert 'recommended_permissions' in result
-        
+
         # Test authentication
         auth_tests = [
             {
@@ -26145,14 +26153,14 @@ class TestCloudSecurity:
                 'expected_secure': False
             }
         ]
-        
+
         for test in auth_tests:
             result = services['cloud'].verify_authentication(test)
             assert result['secure'] == test['expected_secure']
             if not test['expected_secure']:
                 assert 'security_risks' in result
                 assert 'improvement_actions' in result
-        
+
         # Test authorization
         authz_tests = [
             {
@@ -26168,14 +26176,14 @@ class TestCloudSecurity:
                 'expected_allowed': True
             }
         ]
-        
+
         for test in authz_tests:
             result = services['cloud'].verify_authorization(test)
             assert result['allowed'] == test['expected_allowed']
             if not test['expected_allowed']:
                 assert 'denial_reason' in result
                 assert 'required_permissions' in result
-        
+
         # Test audit logging
         audit_tests = [
             {
@@ -26189,7 +26197,7 @@ class TestCloudSecurity:
                 'expected_logged': True
             }
         ]
-        
+
         for test in audit_tests:
             result = services['cloud'].verify_audit_logging(test)
             assert result['logged'] == test['expected_logged']
@@ -26200,13 +26208,13 @@ class TestCloudSecurity:
 
 class CloudSecurityTestDataGenerator:
     """Enhanced test data generator for cloud security testing."""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.registry = CollectorRegistry()
         self._setup_metrics()
         self.random = random.Random(config.get('seed', 42))
-    
+
     def _setup_metrics(self):
         """Setup Prometheus metrics for cloud security testing."""
         self.cloud_security_latency = Histogram(
@@ -26227,7 +26235,7 @@ class CloudSecurityTestDataGenerator:
             ['resource_type'],
             registry=self.registry
         )
-    
+
     def generate_container_test_data(self, count: int = 10) -> List[Dict[str, Any]]:
         """Generate test data for container security testing."""
         containers = []
@@ -26238,7 +26246,7 @@ class CloudSecurityTestDataGenerator:
             {'severity': 'medium', 'cve': 'CVE-2023-9012', 'fix_available': False},
             {'severity': 'low', 'cve': 'CVE-2023-3456', 'fix_available': True}
         ]
-        
+
         for _ in range(count):
             container = {
                 'id': f'CONT-{self.random.randint(1000, 9999)}',
@@ -26248,7 +26256,7 @@ class CloudSecurityTestDataGenerator:
                     'name': f'test-image-{self.random.randint(1, 100)}',
                     'type': self.random.choice(image_types),
                     'vulnerabilities': self.random.sample(
-                        vulnerabilities, 
+                        vulnerabilities,
                         k=self.random.randint(0, len(vulnerabilities))
                     )
                 },
@@ -26282,15 +26290,15 @@ class CloudSecurityTestDataGenerator:
                 }
             }
             containers.append(container)
-        
+
         return containers
-    
+
     def generate_serverless_test_data(self, count: int = 10) -> List[Dict[str, Any]]:
         """Generate test data for serverless security testing."""
         functions = []
         runtimes = ['python3.9', 'nodejs14.x', 'java11', 'go1.x']
         event_types = ['api-gateway', 's3-trigger', 'dynamodb-stream', 'sns']
-        
+
         for _ in range(count):
             function = {
                 'id': f'FUNC-{self.random.randint(1000, 9999)}',
@@ -26327,15 +26335,15 @@ class CloudSecurityTestDataGenerator:
                 }
             }
             functions.append(function)
-        
+
         return functions
-    
+
     def generate_storage_test_data(self, count: int = 10) -> List[Dict[str, Any]]:
         """Generate test data for cloud storage security testing."""
         buckets = []
         encryption_types = ['sse-s3', 'sse-kms', 'sse-c']
         access_types = ['private', 'public-read', 'public-read-write']
-        
+
         for _ in range(count):
             bucket = {
                 'id': f'BUCKET-{self.random.randint(1000, 9999)}',
@@ -26391,15 +26399,15 @@ class CloudSecurityTestDataGenerator:
                 }
             }
             buckets.append(bucket)
-        
+
         return buckets
-    
+
     def generate_identity_test_data(self, count: int = 10) -> List[Dict[str, Any]]:
         """Generate test data for cloud identity security testing."""
         users = []
         roles = ['admin', 'developer', 'operator', 'viewer']
         auth_methods = ['password', 'mfa', 'saml', 'oidc']
-        
+
         for _ in range(count):
             user = {
                 'id': f'USER-{self.random.randint(1000, 9999)}',
@@ -26442,7 +26450,7 @@ class CloudSecurityTestDataGenerator:
                 ]
             }
             users.append(user)
-        
+
         return users
 
 @pytest.fixture
@@ -26454,7 +26462,7 @@ def cloud_test_generator(security_config):
 @pytest.mark.api
 class TestAPISecurity:
     """Test API security features and controls.
-    
+
     This test suite verifies API security controls, including:
     - Authentication and authorization
     - Input validation
@@ -26471,15 +26479,15 @@ class TestAPISecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_api_resources()
         self.service.reset_api_state()
-    
+
     def test_api_authentication(self, security_test_generator, mock_security_services):
         """Test API authentication mechanisms.
-        
+
         This test verifies:
         - Token-based authentication
         - OAuth2 authentication
@@ -26489,7 +26497,7 @@ class TestAPISecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test token-based authentication
         token_tests = [
             {
@@ -26508,14 +26516,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in token_tests:
             result = services['api'].validate_token(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test OAuth2 authentication
         oauth_tests = [
             {
@@ -26531,14 +26539,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in oauth_tests:
             result = services['api'].validate_oauth2(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test API key authentication
         api_key_tests = [
             {
@@ -26552,14 +26560,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in api_key_tests:
             result = services['api'].validate_api_key(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test JWT validation
         jwt_tests = [
             {
@@ -26578,14 +26586,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in jwt_tests:
             result = services['api'].validate_jwt(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test session management
         session_tests = [
             {
@@ -26599,7 +26607,7 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in session_tests:
             result = services['api'].validate_session(test)
             assert result['valid'] == test['expected_valid']
@@ -26609,7 +26617,7 @@ class TestAPISecurity:
 
     def test_api_authorization(self, security_test_generator, mock_security_services):
         """Test API authorization controls.
-        
+
         This test verifies:
         - Role-based access control
         - Resource-based access control
@@ -26619,7 +26627,7 @@ class TestAPISecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test role-based access control
         rbac_tests = [
             {
@@ -26637,14 +26645,14 @@ class TestAPISecurity:
                 'expected_allowed': False
             }
         ]
-        
+
         for test in rbac_tests:
             result = services['api'].check_rbac(test)
             assert result['allowed'] == test['expected_allowed']
             if not test['expected_allowed']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test resource-based access control
         resource_tests = [
             {
@@ -26660,14 +26668,14 @@ class TestAPISecurity:
                 'expected_allowed': False
             }
         ]
-        
+
         for test in resource_tests:
             result = services['api'].check_resource_access(test)
             assert result['allowed'] == test['expected_allowed']
             if not test['expected_allowed']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test permission validation
         permission_tests = [
             {
@@ -26681,14 +26689,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in permission_tests:
             result = services['api'].validate_permission(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test scope validation
         scope_tests = [
             {
@@ -26704,14 +26712,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in scope_tests:
             result = services['api'].validate_scope(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test policy enforcement
         policy_tests = [
             {
@@ -26729,7 +26737,7 @@ class TestAPISecurity:
                 'expected_allowed': False
             }
         ]
-        
+
         for test in policy_tests:
             result = services['api'].enforce_policy(test)
             assert result['allowed'] == test['expected_allowed']
@@ -26739,7 +26747,7 @@ class TestAPISecurity:
 
     def test_api_input_validation(self, security_test_generator, mock_security_services):
         """Test API input validation controls.
-        
+
         This test verifies:
         - Request validation
         - Parameter validation
@@ -26749,7 +26757,7 @@ class TestAPISecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test request validation
         request_tests = [
             {
@@ -26765,14 +26773,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in request_tests:
             result = services['api'].validate_request(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test parameter validation
         parameter_tests = [
             {
@@ -26788,14 +26796,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in parameter_tests:
             result = services['api'].validate_parameter(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test payload validation
         payload_tests = [
             {
@@ -26821,14 +26829,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in payload_tests:
             result = services['api'].validate_payload(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test content type validation
         content_type_tests = [
             {
@@ -26840,14 +26848,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in content_type_tests:
             result = services['api'].validate_content_type(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test schema validation
         schema_tests = [
             {
@@ -26873,7 +26881,7 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in schema_tests:
             result = services['api'].validate_schema(test)
             assert result['valid'] == test['expected_valid']
@@ -26883,7 +26891,7 @@ class TestAPISecurity:
 
     def test_api_rate_limiting(self, security_test_generator, mock_security_services):
         """Test API rate limiting controls.
-        
+
         This test verifies:
         - Request rate limiting
         - IP-based rate limiting
@@ -26893,7 +26901,7 @@ class TestAPISecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test request rate limiting
         rate_tests = [
             {
@@ -26909,7 +26917,7 @@ class TestAPISecurity:
                 'expected_allowed': False
             }
         ]
-        
+
         for test in rate_tests:
             result = services['api'].check_rate_limit(test)
             assert result['allowed'] == test['expected_allowed']
@@ -26917,7 +26925,7 @@ class TestAPISecurity:
                 assert 'error' in result
                 assert 'error_code' in result
                 assert 'retry_after' in result
-        
+
         # Test IP-based rate limiting
         ip_tests = [
             {
@@ -26933,7 +26941,7 @@ class TestAPISecurity:
                 'expected_allowed': False
             }
         ]
-        
+
         for test in ip_tests:
             result = services['api'].check_ip_rate_limit(test)
             assert result['allowed'] == test['expected_allowed']
@@ -26941,7 +26949,7 @@ class TestAPISecurity:
                 assert 'error' in result
                 assert 'error_code' in result
                 assert 'retry_after' in result
-        
+
         # Test user-based rate limiting
         user_tests = [
             {
@@ -26957,7 +26965,7 @@ class TestAPISecurity:
                 'expected_allowed': False
             }
         ]
-        
+
         for test in user_tests:
             result = services['api'].check_user_rate_limit(test)
             assert result['allowed'] == test['expected_allowed']
@@ -26965,7 +26973,7 @@ class TestAPISecurity:
                 assert 'error' in result
                 assert 'error_code' in result
                 assert 'retry_after' in result
-        
+
         # Test burst handling
         burst_tests = [
             {
@@ -26981,7 +26989,7 @@ class TestAPISecurity:
                 'expected_allowed': False
             }
         ]
-        
+
         for test in burst_tests:
             result = services['api'].check_burst_limit(test)
             assert result['allowed'] == test['expected_allowed']
@@ -26989,7 +26997,7 @@ class TestAPISecurity:
                 assert 'error' in result
                 assert 'error_code' in result
                 assert 'retry_after' in result
-        
+
         # Test rate limit headers
         header_tests = [
             {
@@ -27011,7 +27019,7 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in header_tests:
             result = services['api'].validate_rate_limit_headers(test)
             assert result['valid'] == test['expected_valid']
@@ -27021,7 +27029,7 @@ class TestAPISecurity:
 
     def test_api_versioning(self, security_test_generator, mock_security_services):
         """Test API versioning controls.
-        
+
         This test verifies:
         - Version header validation
         - Version compatibility
@@ -27031,7 +27039,7 @@ class TestAPISecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test version header validation
         header_tests = [
             {
@@ -27045,14 +27053,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in header_tests:
             result = services['api'].validate_version_header(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test version compatibility
         compatibility_tests = [
             {
@@ -27066,14 +27074,14 @@ class TestAPISecurity:
                 'expected_compatible': False
             }
         ]
-        
+
         for test in compatibility_tests:
             result = services['api'].check_version_compatibility(test)
             assert result['compatible'] == test['expected_compatible']
             if not test['expected_compatible']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test version deprecation
         deprecation_tests = [
             {
@@ -27087,14 +27095,14 @@ class TestAPISecurity:
                 'expected_deprecated': True
             }
         ]
-        
+
         for test in deprecation_tests:
             result = services['api'].check_version_deprecation(test)
             assert result['deprecated'] == test['expected_deprecated']
             if test['expected_deprecated']:
                 assert 'deprecation_date' in result
                 assert 'migration_guide' in result
-        
+
         # Test version migration
         migration_tests = [
             {
@@ -27108,14 +27116,14 @@ class TestAPISecurity:
                 'expected_supported': False
             }
         ]
-        
+
         for test in migration_tests:
             result = services['api'].check_version_migration(test)
             assert result['supported'] == test['expected_supported']
             if not test['expected_supported']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test version documentation
         documentation_tests = [
             {
@@ -27127,7 +27135,7 @@ class TestAPISecurity:
                 'expected_documented': False
             }
         ]
-        
+
         for test in documentation_tests:
             result = services['api'].check_version_documentation(test)
             assert result['documented'] == test['expected_documented']
@@ -27137,7 +27145,7 @@ class TestAPISecurity:
 
     def test_api_error_handling(self, security_test_generator, mock_security_services):
         """Test API error handling controls.
-        
+
         This test verifies:
         - Error response format
         - Error codes
@@ -27147,7 +27155,7 @@ class TestAPISecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test error response format
         format_tests = [
             {
@@ -27166,14 +27174,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in format_tests:
             result = services['api'].validate_error_format(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test error codes
         code_tests = [
             {
@@ -27185,14 +27193,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in code_tests:
             result = services['api'].validate_error_code(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test error messages
         message_tests = [
             {
@@ -27206,14 +27214,14 @@ class TestAPISecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in message_tests:
             result = services['api'].validate_error_message(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test error logging
         logging_tests = [
             {
@@ -27232,14 +27240,14 @@ class TestAPISecurity:
                 'expected_logged': False
             }
         ]
-        
+
         for test in logging_tests:
             result = services['api'].log_error(test)
             assert result['logged'] == test['expected_logged']
             if not test['expected_logged']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test error tracking
         tracking_tests = [
             {
@@ -27258,7 +27266,7 @@ class TestAPISecurity:
                 'expected_tracked': False
             }
         ]
-        
+
         for test in tracking_tests:
             result = services['api'].track_error(test)
             assert result['tracked'] == test['expected_tracked']
@@ -27268,7 +27276,7 @@ class TestAPISecurity:
 
     def test_api_logging_monitoring(self, security_test_generator, mock_security_services):
         """Test API logging and monitoring controls.
-        
+
         This test verifies:
         - Request logging
         - Response logging
@@ -27278,7 +27286,7 @@ class TestAPISecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test request logging
         request_tests = [
             {
@@ -27299,14 +27307,14 @@ class TestAPISecurity:
                 'expected_logged': False
             }
         ]
-        
+
         for test in request_tests:
             result = services['api'].log_request(test)
             assert result['logged'] == test['expected_logged']
             if not test['expected_logged']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test response logging
         response_tests = [
             {
@@ -27326,14 +27334,14 @@ class TestAPISecurity:
                 'expected_logged': True
             }
         ]
-        
+
         for test in response_tests:
             result = services['api'].log_response(test)
             assert result['logged'] == test['expected_logged']
             if not test['expected_logged']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test error logging
         error_tests = [
             {
@@ -27352,14 +27360,14 @@ class TestAPISecurity:
                 'expected_logged': False
             }
         ]
-        
+
         for test in error_tests:
             result = services['api'].log_error(test)
             assert result['logged'] == test['expected_logged']
             if not test['expected_logged']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test performance monitoring
         performance_tests = [
             {
@@ -27375,14 +27383,14 @@ class TestAPISecurity:
                 'expected_monitored': True
             }
         ]
-        
+
         for test in performance_tests:
             result = services['api'].monitor_performance(test)
             assert result['monitored'] == test['expected_monitored']
             if not test['expected_monitored']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test security monitoring
         security_tests = [
             {
@@ -27404,7 +27412,7 @@ class TestAPISecurity:
                 'expected_monitored': True
             }
         ]
-        
+
         for test in security_tests:
             result = services['api'].monitor_security(test)
             assert result['monitored'] == test['expected_monitored']
@@ -27416,7 +27424,7 @@ class TestAPISecurity:
 @pytest.mark.colab
 class TestColabSecurity:
     """Test Colab security features and controls.
-    
+
     This test suite verifies Colab security controls, including:
     - Authentication and authorization
     - Resource isolation
@@ -27433,15 +27441,15 @@ class TestColabSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_colab_resources()
         self.service.reset_colab_state()
-    
+
     def test_colab_authentication(self, security_test_generator, mock_security_services):
         """Test Colab authentication controls.
-        
+
         This test verifies:
         - OAuth2 authentication
         - Credential management
@@ -27451,7 +27459,7 @@ class TestColabSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test OAuth2 authentication
         oauth_tests = [
             {
@@ -27467,7 +27475,7 @@ class TestColabSecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in oauth_tests:
             result = services['colab'].validate_oauth2(test)
             assert result['valid'] == test['expected_valid']
@@ -27475,7 +27483,7 @@ class TestColabSecurity:
                 assert 'access_token' in result
                 assert 'refresh_token' in result
                 assert 'expires_in' in result
-        
+
         # Test credential management
         credential_tests = [
             {
@@ -27489,14 +27497,14 @@ class TestColabSecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in credential_tests:
             result = services['colab'].validate_credentials(test)
             assert result['valid'] == test['expected_valid']
             if test['expected_valid']:
                 assert 'credential_id' in result
                 assert 'credential_status' in result
-        
+
         # Test token validation
         token_tests = [
             {
@@ -27510,14 +27518,14 @@ class TestColabSecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in token_tests:
             result = services['colab'].validate_token(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test session management
         session_tests = [
             {
@@ -27531,14 +27539,14 @@ class TestColabSecurity:
                 'expected_valid': False
             }
         ]
-        
+
         for test in session_tests:
             result = services['colab'].validate_session(test)
             assert result['valid'] == test['expected_valid']
             if not test['expected_valid']:
                 assert 'error' in result
                 assert 'error_code' in result
-        
+
         # Test access token refresh
         refresh_tests = [
             {
@@ -27550,7 +27558,7 @@ class TestColabSecurity:
                 'expected_refreshed': False
             }
         ]
-        
+
         for test in refresh_tests:
             result = services['colab'].refresh_access_token(test)
             assert result['refreshed'] == test['expected_refreshed']
@@ -27560,7 +27568,7 @@ class TestColabSecurity:
 
     def test_colab_resource_isolation(self, security_test_generator, mock_security_services):
         """Test Colab resource isolation controls.
-        
+
         This test verifies:
         - Runtime isolation
         - Memory isolation
@@ -27570,7 +27578,7 @@ class TestColabSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test runtime isolation
         runtime_tests = [
             {
@@ -27584,14 +27592,14 @@ class TestColabSecurity:
                 'expected_isolated': True
             }
         ]
-        
+
         for test in runtime_tests:
             result = services['colab'].verify_runtime_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             if test['expected_isolated']:
                 assert 'isolation_metrics' in result
                 assert 'resource_usage' in result
-        
+
         # Test memory isolation
         memory_tests = [
             {
@@ -27605,14 +27613,14 @@ class TestColabSecurity:
                 'expected_isolated': True
             }
         ]
-        
+
         for test in memory_tests:
             result = services['colab'].verify_memory_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             if test['expected_isolated']:
                 assert 'memory_usage' in result
                 assert 'memory_limit' in result
-        
+
         # Test GPU isolation
         gpu_tests = [
             {
@@ -27626,14 +27634,14 @@ class TestColabSecurity:
                 'expected_isolated': True
             }
         ]
-        
+
         for test in gpu_tests:
             result = services['colab'].verify_gpu_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             if test['expected_isolated']:
                 assert 'gpu_usage' in result
                 assert 'gpu_memory' in result
-        
+
         # Test storage isolation
         storage_tests = [
             {
@@ -27647,14 +27655,14 @@ class TestColabSecurity:
                 'expected_isolated': True
             }
         ]
-        
+
         for test in storage_tests:
             result = services['colab'].verify_storage_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             if test['expected_isolated']:
                 assert 'storage_usage' in result
                 assert 'storage_permissions' in result
-        
+
         # Test network isolation
         network_tests = [
             {
@@ -27668,7 +27676,7 @@ class TestColabSecurity:
                 'expected_isolated': True
             }
         ]
-        
+
         for test in network_tests:
             result = services['colab'].verify_network_isolation(test)
             assert result['isolated'] == test['expected_isolated']
@@ -27678,7 +27686,7 @@ class TestColabSecurity:
 
     def test_colab_data_protection(self, security_test_generator, mock_security_services):
         """Test Colab data protection controls.
-        
+
         This test verifies:
         - Data encryption
         - Data access control
@@ -27688,7 +27696,7 @@ class TestColabSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test data encryption
         encryption_tests = [
             {
@@ -27702,14 +27710,14 @@ class TestColabSecurity:
                 'expected_encrypted': False
             }
         ]
-        
+
         for test in encryption_tests:
             result = services['colab'].verify_data_encryption(test)
             assert result['encrypted'] == test['expected_encrypted']
             if test['expected_encrypted']:
                 assert 'encryption_key' in result
                 assert 'encryption_status' in result
-        
+
         # Test data access control
         access_tests = [
             {
@@ -27723,14 +27731,14 @@ class TestColabSecurity:
                 'expected_controlled': True
             }
         ]
-        
+
         for test in access_tests:
             result = services['colab'].verify_data_access(test)
             assert result['controlled'] == test['expected_controlled']
             if test['expected_controlled']:
                 assert 'access_policy' in result
                 assert 'allowed_users' in result
-        
+
         # Test data backup
         backup_tests = [
             {
@@ -27744,14 +27752,14 @@ class TestColabSecurity:
                 'expected_backed_up': False
             }
         ]
-        
+
         for test in backup_tests:
             result = services['colab'].verify_data_backup(test)
             assert result['backed_up'] == test['expected_backed_up']
             if test['expected_backed_up']:
                 assert 'backup_location' in result
                 assert 'last_backup' in result
-        
+
         # Test data retention
         retention_tests = [
             {
@@ -27765,14 +27773,14 @@ class TestColabSecurity:
                 'expected_retained': True
             }
         ]
-        
+
         for test in retention_tests:
             result = services['colab'].verify_data_retention(test)
             assert result['retained'] == test['expected_retained']
             if test['expected_retained']:
                 assert 'retention_policy' in result
                 assert 'expiry_date' in result
-        
+
         # Test data sanitization
         sanitization_tests = [
             {
@@ -27786,7 +27794,7 @@ class TestColabSecurity:
                 'expected_sanitized': True
             }
         ]
-        
+
         for test in sanitization_tests:
             result = services['colab'].verify_data_sanitization(test)
             assert result['sanitized'] == test['expected_sanitized']
@@ -27796,7 +27804,7 @@ class TestColabSecurity:
 
     def test_colab_runtime_security(self, security_test_generator, mock_security_services):
         """Test Colab runtime security controls.
-        
+
         This test verifies:
         - Runtime environment
         - Package security
@@ -27806,7 +27814,7 @@ class TestColabSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test runtime environment
         environment_tests = [
             {
@@ -27820,14 +27828,14 @@ class TestColabSecurity:
                 'expected_secure': True
             }
         ]
-        
+
         for test in environment_tests:
             result = services['colab'].verify_runtime_environment(test)
             assert result['secure'] == test['expected_secure']
             if test['expected_secure']:
                 assert 'environment_config' in result
                 assert 'security_settings' in result
-        
+
         # Test package security
         package_tests = [
             {
@@ -27841,14 +27849,14 @@ class TestColabSecurity:
                 'expected_secure': True
             }
         ]
-        
+
         for test in package_tests:
             result = services['colab'].verify_package_security(test)
             assert result['secure'] == test['expected_secure']
             if test['expected_secure']:
                 assert 'vulnerability_scan' in result
                 assert 'security_updates' in result
-        
+
         # Test resource limits
         resource_tests = [
             {
@@ -27864,14 +27872,14 @@ class TestColabSecurity:
                 'expected_limited': True
             }
         ]
-        
+
         for test in resource_tests:
             result = services['colab'].verify_resource_limits(test)
             assert result['limited'] == test['expected_limited']
             if test['expected_limited']:
                 assert 'current_usage' in result
                 assert 'limit_status' in result
-        
+
         # Test process isolation
         process_tests = [
             {
@@ -27885,14 +27893,14 @@ class TestColabSecurity:
                 'expected_isolated': True
             }
         ]
-        
+
         for test in process_tests:
             result = services['colab'].verify_process_isolation(test)
             assert result['isolated'] == test['expected_isolated']
             if test['expected_isolated']:
                 assert 'isolation_level' in result
                 assert 'resource_usage' in result
-        
+
         # Test system hardening
         hardening_tests = [
             {
@@ -27906,7 +27914,7 @@ class TestColabSecurity:
                 'expected_hardened': True
             }
         ]
-        
+
         for test in hardening_tests:
             result = services['colab'].verify_system_hardening(test)
             assert result['hardened'] == test['expected_hardened']
@@ -27916,7 +27924,7 @@ class TestColabSecurity:
 
     def test_colab_monitoring_logging(self, security_test_generator, mock_security_services):
         """Test Colab monitoring and logging controls.
-        
+
         This test verifies:
         - Resource monitoring
         - Security monitoring
@@ -27926,7 +27934,7 @@ class TestColabSecurity:
         """
         generator = security_test_generator
         services = mock_security_services
-        
+
         # Test resource monitoring
         resource_tests = [
             {
@@ -27940,14 +27948,14 @@ class TestColabSecurity:
                 'expected_monitored': True
             }
         ]
-        
+
         for test in resource_tests:
             result = services['colab'].verify_resource_monitoring(test)
             assert result['monitored'] == test['expected_monitored']
             if test['expected_monitored']:
                 assert 'metrics' in result
                 assert 'thresholds' in result
-        
+
         # Test security monitoring
         security_tests = [
             {
@@ -27961,14 +27969,14 @@ class TestColabSecurity:
                 'expected_monitored': True
             }
         ]
-        
+
         for test in security_tests:
             result = services['colab'].verify_security_monitoring(test)
             assert result['monitored'] == test['expected_monitored']
             if test['expected_monitored']:
                 assert 'security_events' in result
                 assert 'threat_detection' in result
-        
+
         # Test activity logging
         activity_tests = [
             {
@@ -27982,14 +27990,14 @@ class TestColabSecurity:
                 'expected_logged': True
             }
         ]
-        
+
         for test in activity_tests:
             result = services['colab'].verify_activity_logging(test)
             assert result['logged'] == test['expected_logged']
             if test['expected_logged']:
                 assert 'log_entries' in result
                 assert 'log_retention' in result
-        
+
         # Test audit logging
         audit_tests = [
             {
@@ -28003,14 +28011,14 @@ class TestColabSecurity:
                 'expected_audited': True
             }
         ]
-        
+
         for test in audit_tests:
             result = services['colab'].verify_audit_logging(test)
             assert result['audited'] == test['expected_audited']
             if test['expected_audited']:
                 assert 'audit_trail' in result
                 assert 'audit_retention' in result
-        
+
         # Test alert management
         alert_tests = [
             {
@@ -28024,7 +28032,7 @@ class TestColabSecurity:
                 'expected_managed': True
             }
         ]
-        
+
         for test in alert_tests:
             result = services['colab'].verify_alert_management(test)
             assert result['managed'] == test['expected_managed']
@@ -28052,7 +28060,7 @@ def colab_test_client():
 @pytest.mark.edge_cases
 class TestSecurityEdgeCases:
     """Test security edge cases and error conditions.
-    
+
     This test suite verifies security controls under edge cases and error conditions:
     - Boundary conditions
     - Error handling
@@ -28068,7 +28076,7 @@ class TestSecurityEdgeCases:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_resources()
@@ -28376,7 +28384,7 @@ class TestSecurityEdgeCases:
 @pytest.mark.cloud
 class TestEnhancedCloudSecurity:
     """Enhanced cloud security test suite.
-    
+
     This test suite verifies additional cloud security controls:
     - Advanced resource monitoring
     - Fine-grained access control
@@ -28392,7 +28400,7 @@ class TestEnhancedCloudSecurity:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_cloud_resources()
@@ -28675,7 +28683,7 @@ class TestEnhancedCloudSecurity:
 @pytest.mark.compliance
 class TestSecurityCompliance:
     """Security compliance test suite.
-    
+
     This test suite verifies security compliance with:
     - Regulatory requirements
     - Industry standards
@@ -28691,7 +28699,7 @@ class TestSecurityCompliance:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_compliance_resources()
@@ -28906,7 +28914,7 @@ class TestSecurityCompliance:
 @pytest.mark.incident
 class TestSecurityIncidentResponse:
     """Security incident response test suite.
-    
+
     This test suite verifies security incident response capabilities:
     - Incident detection
     - Incident classification
@@ -28922,7 +28930,7 @@ class TestSecurityIncidentResponse:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_incident_resources()
@@ -29173,7 +29181,7 @@ class TestSecurityIncidentResponse:
 @pytest.mark.performance
 class TestSecurityPerformance:
     """Security performance test suite.
-    
+
     This test suite verifies security performance characteristics:
     - Load testing
     - Stress testing
@@ -29189,7 +29197,7 @@ class TestSecurityPerformance:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_performance_resources()
@@ -29504,7 +29512,7 @@ def performance_test_client():
 @pytest.mark.advanced
 class TestAdvancedSecurityControls:
     """Advanced security controls test suite.
-    
+
     This test suite verifies advanced security controls:
     - Zero Trust Architecture
     - Advanced Threat Protection
@@ -29520,7 +29528,7 @@ class TestAdvancedSecurityControls:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_advanced_resources()
@@ -29804,7 +29812,7 @@ class TestAdvancedSecurityControls:
 @pytest.mark.resilience
 class TestSecurityResilience:
     """Security resilience test suite.
-    
+
     This test suite verifies security resilience capabilities:
     - Fault tolerance
     - Disaster recovery
@@ -29820,7 +29828,7 @@ class TestSecurityResilience:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_resilience_resources()
@@ -30128,7 +30136,7 @@ def resilience_test_client():
 @pytest.mark.advanced
 class TestAdvancedSecurityEdgeCases:
     """Advanced security edge cases test suite.
-    
+
     This test suite verifies advanced security controls under extreme conditions:
     - Zero Trust edge cases
     - Advanced threat edge cases
@@ -30144,7 +30152,7 @@ class TestAdvancedSecurityEdgeCases:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_advanced_resources()
@@ -30433,7 +30441,7 @@ class TestAdvancedSecurityEdgeCases:
 @pytest.mark.resilience
 class TestEnhancedResilienceScenarios:
     """Enhanced resilience scenarios test suite.
-    
+
     This test suite verifies security resilience under complex scenarios:
     - Cascading failures
     - Geographic disasters
@@ -30449,7 +30457,7 @@ class TestEnhancedResilienceScenarios:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_resilience_resources()
@@ -30667,7 +30675,7 @@ class TestEnhancedResilienceScenarios:
 @pytest.mark.integration
 class TestSecurityIntegration:
     """Security integration test suite.
-    
+
     This test suite verifies integration between security components:
     - Component interaction
     - Data flow
@@ -30683,7 +30691,7 @@ class TestSecurityIntegration:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_integration_resources()
@@ -30899,7 +30907,7 @@ class TestSecurityIntegration:
 @pytest.mark.performance
 class TestSecurityPerformanceBenchmarks:
     """Security performance benchmarks test suite.
-    
+
     This test suite verifies security performance under various conditions:
     - Authentication performance
     - Authorization performance
@@ -30915,7 +30923,7 @@ class TestSecurityPerformanceBenchmarks:
         self.metrics = defaultdict(list)
         yield
         self.cleanup()
-    
+
     def cleanup(self):
         """Clean up test resources."""
         self.service.cleanup_performance_resources()
@@ -31140,7 +31148,7 @@ class TestSecurityPerformanceBenchmarks:
 @pytest.mark.compliance
 class TestSecurityComplianceValidation:
     """Security compliance validation test suite.
-    
+
     This test suite verifies compliance with security standards:
         # Test GDPR compliance
         gdpr_tests = [

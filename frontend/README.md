@@ -82,4 +82,4 @@ frontend/
 
 ## License
 
-MIT 
+MIT

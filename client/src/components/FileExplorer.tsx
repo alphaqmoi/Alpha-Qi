@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { FileType } from "@/hooks/useFiles";
 
 type FileExplorerProps = {
@@ -8,34 +12,42 @@ type FileExplorerProps = {
 };
 
 const FileExplorer = ({ files, openFile }: FileExplorerProps) => {
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
-    "root": true,
-    "models": true,
+  const [expandedFolders, setExpandedFolders] = useState<
+    Record<string, boolean>
+  >({
+    root: true,
+    models: true,
   });
 
   const toggleFolder = (folderId: string) => {
     setExpandedFolders((prev) => ({
       ...prev,
-      [folderId]: !prev[folderId]
+      [folderId]: !prev[folderId],
     }));
   };
 
   const getFileIcon = (filename: string) => {
-    const extension = filename.split('.').pop()?.toLowerCase();
-    
-    if (extension === 'py') return "ri-file-code-line text-blue-400";
-    if (extension === 'js' || extension === 'jsx' || extension === 'ts' || extension === 'tsx') return "ri-file-code-line text-yellow-400";
-    if (extension === 'json') return "ri-file-code-line text-orange-400";
-    if (extension === 'html') return "ri-file-code-line text-red-400";
-    if (extension === 'css') return "ri-file-code-line text-blue-300";
-    if (extension === 'env') return "ri-file-lock-line text-green-400";
-    
+    const extension = filename.split(".").pop()?.toLowerCase();
+
+    if (extension === "py") return "ri-file-code-line text-blue-400";
+    if (
+      extension === "js" ||
+      extension === "jsx" ||
+      extension === "ts" ||
+      extension === "tsx"
+    )
+      return "ri-file-code-line text-yellow-400";
+    if (extension === "json") return "ri-file-code-line text-orange-400";
+    if (extension === "html") return "ri-file-code-line text-red-400";
+    if (extension === "css") return "ri-file-code-line text-blue-300";
+    if (extension === "env") return "ri-file-lock-line text-green-400";
+
     return "ri-file-line";
   };
 
   const renderFile = (file: FileType) => {
     return (
-      <div 
+      <div
         key={file.id}
         className="flex items-center px-2 py-1 rounded hover:bg-gray-800 cursor-pointer"
         onClick={() => openFile(file.id)}
@@ -48,21 +60,28 @@ const FileExplorer = ({ files, openFile }: FileExplorerProps) => {
 
   const renderFolder = (folder: FileType) => {
     const isExpanded = expandedFolders[folder.id] || false;
-    
+
     return (
       <div key={folder.id}>
-        <Collapsible open={isExpanded} onOpenChange={() => toggleFolder(folder.id)}>
+        <Collapsible
+          open={isExpanded}
+          onOpenChange={() => toggleFolder(folder.id)}
+        >
           <CollapsibleTrigger className="w-full">
             <div className="flex items-center px-2 py-1 rounded hover:bg-gray-800 cursor-pointer">
-              <i className={`${isExpanded ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line'} mr-1 text-sm`}></i>
+              <i
+                className={`${isExpanded ? "ri-arrow-down-s-line" : "ri-arrow-right-s-line"} mr-1 text-sm`}
+              ></i>
               <i className="ri-folder-line mr-2 text-yellow-500"></i>
               <span className="text-sm">{folder.name}</span>
             </div>
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="ml-4 mt-1">
-              {folder.children?.map((child) => 
-                child.type === 'folder' ? renderFolder(child) : renderFile(child)
+              {folder.children?.map((child) =>
+                child.type === "folder"
+                  ? renderFolder(child)
+                  : renderFile(child),
               )}
             </div>
           </CollapsibleContent>
@@ -87,11 +106,11 @@ const FileExplorer = ({ files, openFile }: FileExplorerProps) => {
           </button>
         </div>
       </div>
-      
+
       <div className="overflow-y-auto flex-1 scrollbar-thin">
         <div className="py-2">
-          {files.map((file) => 
-            file.type === 'folder' ? renderFolder(file) : renderFile(file)
+          {files.map((file) =>
+            file.type === "folder" ? renderFolder(file) : renderFile(file),
           )}
         </div>
       </div>

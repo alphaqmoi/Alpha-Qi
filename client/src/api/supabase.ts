@@ -1,5 +1,5 @@
 // client/src/api/supabase.ts
-import { createClient } from '@supabase/supabase-js';
-import { supabaseUrl, supabaseAnonKey } from '@/config/env';
+import { createClient } from "@supabase/supabase-js";
+import { supabaseUrl, supabaseAnonKey } from "@/config/env";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

@@ -33,11 +33,11 @@ This document provides guidelines and examples for using mocks in the Alpha-Q pr
 1. **MagicMock**
    ```python
    from unittest.mock import MagicMock
-   
+
    # Basic mock
    mock_db = MagicMock()
    mock_db.query.return_value.filter_by.return_value.first.return_value = None
-   
+
    # Mock with side effects
    mock_model = MagicMock(side_effect=ModelLoadError)
    ```
@@ -45,7 +45,7 @@ This document provides guidelines and examples for using mocks in the Alpha-Q pr
 2. **Patch Decorator**
    ```python
    from unittest.mock import patch
-   
+
    @patch('app.models.ModelManager')
    def test_model_loading(mock_manager):
        mock_manager.return_value.load_model.return_value = test_model
@@ -68,16 +68,16 @@ This document provides guidelines and examples for using mocks in the Alpha-Q pr
 def mock_db():
     """Mock database session."""
     mock = MagicMock()
-    
+
     # Mock query chain
     mock.query.return_value.filter_by.return_value.first.return_value = None
     mock.query.return_value.filter_by.return_value.all.return_value = []
-    
+
     # Mock session operations
     mock.add = MagicMock()
     mock.commit = MagicMock()
     mock.rollback = MagicMock()
-    
+
     return mock
 
 def test_create_user(mock_db):
@@ -95,15 +95,15 @@ def mock_colab_api():
     """Mock Google Colab API."""
     with patch('google.colab.drive') as mock_drive, \
          patch('google.colab.runtime') as mock_runtime:
-        
+
         # Mock drive operations
         mock_drive.mount.return_value = '/content/drive'
         mock_drive.flush_and_unmount.return_value = None
-        
+
         # Mock runtime operations
         mock_runtime.connect.return_value = True
         mock_runtime.disconnect.return_value = None
-        
+
         yield {
             'drive': mock_drive,
             'runtime': mock_runtime
@@ -125,15 +125,15 @@ def mock_file_system():
     with patch('pathlib.Path') as mock_path, \
          patch('shutil.copy2') as mock_copy, \
          patch('os.remove') as mock_remove:
-        
+
         # Mock path operations
         mock_path.return_value.exists.return_value = True
         mock_path.return_value.is_file.return_value = True
-        
+
         # Mock file operations
         mock_copy.return_value = None
         mock_remove.return_value = None
-        
+
         yield {
             'path': mock_path,
             'copy': mock_copy,
@@ -155,15 +155,15 @@ def mock_model():
     with patch('torch.load') as mock_load, \
          patch('torch.save') as mock_save, \
          patch('torch.cuda.is_available') as mock_cuda:
-        
+
         # Mock model loading
         mock_model = MagicMock()
         mock_model.eval.return_value = None
         mock_load.return_value = mock_model
-        
+
         # Mock CUDA operations
         mock_cuda.return_value = True
-        
+
         yield {
             'load': mock_load,
             'save': mock_save,
@@ -328,4 +328,4 @@ mock_download = patch('app.storage.download')  # Don't do this
 4. **Testing Resources**
    - Test templates
    - Example tests
-   - Best practices 
+   - Best practices

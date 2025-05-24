@@ -25,11 +25,11 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
    # Create and activate virtual environment
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   
+
    # Install development dependencies
    pip install -r requirements.txt
    pip install -r requirements-dev.txt
-   
+
    # Install pre-commit hooks
    pre-commit install
    ```
@@ -123,4 +123,4 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 - [Python Style Guide](https://www.python.org/dev/peps/pep-0008/)
 - [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
 - [Semantic Versioning](https://semver.org/)
-- [Conventional Commits](https://www.conventionalcommits.org/) 
+- [Conventional Commits](https://www.conventionalcommits.org/)

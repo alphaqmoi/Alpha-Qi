@@ -43,35 +43,35 @@ gunicorn --bind 0.0.0.0:5000 \
    ```dockerfile
    # Base image
    FROM python:3.8-slim
-   
+
    # Set environment variables
    ENV PYTHONUNBUFFERED=1 \
        PYTHONDONTWRITEBYTECODE=1 \
        FLASK_APP=app.py \
        FLASK_ENV=production
-   
+
    # Create non-root user
    RUN useradd -m -s /bin/bash appuser
-   
+
    # Set up application directory
    WORKDIR /app
-   
+
    # Install system dependencies
    RUN apt-get update && apt-get install -y \
        build-essential \
        libpq-dev \
        && rm -rf /var/lib/apt/lists/*
-   
+
    # Copy requirements first for better caching
    COPY requirements.txt .
    RUN pip install --no-cache-dir -r requirements.txt
-   
+
    # Copy application code
    COPY --chown=appuser:appuser . .
-   
+
    # Switch to non-root user
    USER appuser
-   
+
    # Run application
    CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
    ```
@@ -80,7 +80,7 @@ gunicorn --bind 0.0.0.0:5000 \
    ```yaml
    # docker-compose.yml
    version: '3.8'
-   
+
    services:
      web:
        build: .
@@ -92,7 +92,7 @@ gunicorn --bind 0.0.0.0:5000 \
        depends_on:
          - db
          - redis
-   
+
      db:
        image: postgres:13
        environment:
@@ -101,12 +101,12 @@ gunicorn --bind 0.0.0.0:5000 \
          - POSTGRES_DB=alphaq
        volumes:
          - postgres_data:/var/lib/postgresql/data
-   
+
      redis:
        image: redis:6
        volumes:
          - redis_data:/data
-   
+
    volumes:
      postgres_data:
      redis_data:
@@ -187,10 +187,10 @@ gunicorn --bind 0.0.0.0:5000 \
    ```bash
    # Create migrations directory
    flask db init
-   
+
    # Create initial migration
    flask db migrate -m "Initial migration"
-   
+
    # Apply migration
    flask db upgrade
    ```
@@ -199,14 +199,14 @@ gunicorn --bind 0.0.0.0:5000 \
    ```bash
    # Create new migration
    flask db migrate -m "Add user preferences"
-   
+
    # Review migration
    flask db current
    flask db history
-   
+
    # Apply migration
    flask db upgrade
-   
+
    # Rollback migration
    flask db downgrade
    ```
@@ -234,13 +234,13 @@ gunicorn --bind 0.0.0.0:5000 \
        SQLALCHEMY_TRACK_MODIFICATIONS = False
        JWT_SECRET_KEY = os.getenv('JWT_SECRET')
        REDIS_URL = os.getenv('REDIS_URL')
-       
+
        # Security
        SESSION_COOKIE_SECURE = True
        REMEMBER_COOKIE_SECURE = True
        SESSION_COOKIE_HTTPONLY = True
        REMEMBER_COOKIE_HTTPONLY = True
-       
+
        # Performance
        SQLALCHEMY_ENGINE_OPTIONS = {
            'pool_size': 10,
@@ -256,7 +256,7 @@ gunicorn --bind 0.0.0.0:5000 \
    # prometheus.yml
    global:
      scrape_interval: 15s
-   
+
    scrape_configs:
      - job_name: 'alpha-q'
        static_configs:
@@ -294,14 +294,14 @@ gunicorn --bind 0.0.0.0:5000 \
    #!/bin/bash
    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
    BACKUP_DIR="/backups"
-   
+
    # Backup database
    pg_dump -U $DB_USER -h $DB_HOST $DB_NAME > \
        $BACKUP_DIR/alphaq_$TIMESTAMP.sql
-   
+
    # Compress backup
    gzip $BACKUP_DIR/alphaq_$TIMESTAMP.sql
-   
+
    # Keep only last 7 days of backups
    find $BACKUP_DIR -name "alphaq_*.sql.gz" -mtime +7 -delete
    ```
@@ -310,7 +310,7 @@ gunicorn --bind 0.0.0.0:5000 \
    ```bash
    # Restore from backup
    gunzip -c backup.sql.gz | psql -U $DB_USER -h $DB_HOST $DB_NAME
-   
+
    # Verify restoration
    flask db current
    flask db history
@@ -322,7 +322,7 @@ gunicorn --bind 0.0.0.0:5000 \
    ```bash
    # Scale deployment
    kubectl scale deployment alpha-q --replicas=5
-   
+
    # Monitor scaling
    kubectl get hpa alpha-q
    kubectl describe hpa alpha-q
@@ -336,11 +336,11 @@ gunicorn --bind 0.0.0.0:5000 \
        server 127.0.0.1:5001;
        server 127.0.0.1:5002;
    }
-   
+
    server {
        listen 80;
        server_name api.alpha-q.com;
-   
+
        location / {
            proxy_pass http://alpha_q;
            proxy_set_header Host $host;
@@ -361,11 +361,11 @@ gunicorn --bind 0.0.0.0:5000 \
    ```bash
    # Check logs
    kubectl logs -f deployment/alpha-q
-   
+
    # Monitor resources
    kubectl top pods
    kubectl top nodes
-   
+
    # Check endpoints
    kubectl get endpoints alpha-q
    ```
@@ -378,10 +378,10 @@ gunicorn --bind 0.0.0.0:5000 \
    server {
        listen 443 ssl;
        server_name api.alpha-q.com;
-   
+
        ssl_certificate /etc/nginx/ssl/cert.pem;
        ssl_certificate_key /etc/nginx/ssl/key.pem;
-   
+
        ssl_protocols TLSv1.2 TLSv1.3;
        ssl_ciphers HIGH:!aNULL:!MD5;
    }
@@ -402,4 +402,4 @@ For deployment issues:
 1. Check the [deployment documentation](docs/deployment.md)
 2. Review [deployment logs](logs/)
 3. Join the [community chat](https://discord.gg/alpha-q)
-4. Contact the maintainers 
+4. Contact the maintainers

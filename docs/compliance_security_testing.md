@@ -57,7 +57,7 @@ This guide provides comprehensive documentation for compliance security testing 
 def test_iso27001_compliance():
     response = client.get("/api/compliance/iso27001/status")
     compliance = response.json['compliance']
-    
+
     # Verify key controls
     assert compliance['information_security_policy']
     assert compliance['asset_management']
@@ -70,7 +70,7 @@ def test_iso27001_compliance():
 def test_compliance_documentation():
     response = client.get("/api/compliance/documentation")
     documentation = response.json['documentation']
-    
+
     # Verify documentation requirements
     assert documentation['policies_exist']
     assert documentation['procedures_exist']
@@ -83,7 +83,7 @@ def test_compliance_documentation():
 def test_compliance_incident_response():
     response = client.get("/api/compliance/incident/response")
     incident_response = response.json['response']
-    
+
     # Verify incident response capabilities
     assert incident_response['detection_enabled']
     assert incident_response['response_plan']
@@ -251,4 +251,4 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 
 ## Conclusion
 
-This guide provides a comprehensive framework for compliance security testing. Regular updates and maintenance are essential to ensure continued compliance with evolving regulations and standards. For additional support or clarification, please contact the security team. 
+This guide provides a comprehensive framework for compliance security testing. Regular updates and maintenance are essential to ensure continued compliance with evolving regulations and standards. For additional support or clarification, please contact the security team.

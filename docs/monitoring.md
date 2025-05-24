@@ -32,38 +32,38 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```python
    # metrics.py
    from prometheus_client import Counter, Histogram, Gauge
-   
+
    # Request metrics
    REQUEST_COUNT = Counter(
        'http_requests_total',
        'Total HTTP requests',
        ['method', 'endpoint', 'status']
    )
-   
+
    REQUEST_LATENCY = Histogram(
        'http_request_duration_seconds',
        'HTTP request latency',
        ['method', 'endpoint']
    )
-   
+
    # Resource metrics
    CPU_USAGE = Gauge(
        'cpu_usage_percent',
        'CPU usage percentage'
    )
-   
+
    MEMORY_USAGE = Gauge(
        'memory_usage_bytes',
        'Memory usage in bytes'
    )
-   
+
    # Model metrics
    MODEL_LATENCY = Histogram(
        'model_inference_duration_seconds',
        'Model inference latency',
        ['model_name']
    )
-   
+
    MODEL_ACCURACY = Gauge(
        'model_accuracy',
        'Model accuracy score',
@@ -76,12 +76,12 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    # middleware.py
    from functools import wraps
    from time import time
-   
+
    def monitor_requests(f):
        @wraps(f)
        def decorated_function(*args, **kwargs):
            start_time = time()
-           
+
            try:
                response = f(*args, **kwargs)
                status = response.status_code
@@ -99,7 +99,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
                    method=request.method,
                    endpoint=request.endpoint
                ).observe(duration)
-           
+
            return response
        return decorated_function
    ```
@@ -124,11 +124,11 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
                f'model_{model_name}_queue_size',
                f'Request queue size for {model_name}'
            )
-   
+
        def record_inference(self, duration, batch_size):
            self.inference_time.observe(duration)
            self.batch_size.set(batch_size)
-   
+
        def update_queue(self, size):
            self.queue_size.set(size)
    ```
@@ -138,17 +138,17 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    # resource_metrics.py
    import psutil
    import GPUtil
-   
+
    def collect_system_metrics():
        """Collect system resource metrics"""
        # CPU metrics
        cpu_percent = psutil.cpu_percent(interval=1)
        CPU_USAGE.set(cpu_percent)
-   
+
        # Memory metrics
        memory = psutil.virtual_memory()
        MEMORY_USAGE.set(memory.used)
-   
+
        # GPU metrics
        try:
            gpus = GPUtil.getGPUs()
@@ -177,7 +177,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
        annotations:
          summary: High error rate detected
          description: Error rate is {{ $value }} for the last 5 minutes
-   
+
      - alert: HighLatency
        expr: http_request_duration_seconds{quantile="0.9"} > 1
        for: 5m
@@ -186,7 +186,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
        annotations:
          summary: High latency detected
          description: 90th percentile latency is {{ $value }}s
-   
+
      - alert: HighResourceUsage
        expr: |
          cpu_usage_percent > 80 or
@@ -205,14 +205,14 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    global:
      resolve_timeout: 5m
      slack_api_url: 'https://hooks.slack.com/services/...'
-   
+
    route:
      group_by: ['alertname', 'severity']
      group_wait: 30s
      group_interval: 5m
      repeat_interval: 4h
      receiver: 'slack-notifications'
-   
+
    receivers:
    - name: 'slack-notifications'
      slack_configs:
@@ -228,7 +228,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```python
    # logging.py
    import structlog
-   
+
    structlog.configure(
        processors=[
            structlog.processors.TimeStamper(fmt="iso"),
@@ -239,9 +239,9 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
        wrapper_class=structlog.BoundLogger,
        cache_logger_on_first_use=True,
    )
-   
+
    logger = structlog.get_logger()
-   
+
    def log_request(request, response, duration):
        logger.info(
            "request_processed",
@@ -258,7 +258,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    # log_handlers.py
    from logging.handlers import RotatingFileHandler
    import logging
-   
+
    def setup_logging(app):
        # File handler
        file_handler = RotatingFileHandler(
@@ -271,12 +271,12 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
        ))
        file_handler.setLevel(logging.INFO)
        app.logger.addHandler(file_handler)
-   
+
        # Console handler
        console_handler = logging.StreamHandler()
        console_handler.setLevel(logging.DEBUG)
        app.logger.addHandler(console_handler)
-   
+
        app.logger.setLevel(logging.INFO)
        app.logger.info('Alpha-Q startup')
    ```
@@ -359,9 +359,9 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```python
    # health.py
    from flask import Blueprint, jsonify
-   
+
    health = Blueprint('health', __name__)
-   
+
    @health.route('/health')
    def health_check():
        """Basic health check endpoint"""
@@ -370,7 +370,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
            'version': '1.0.0',
            'timestamp': datetime.utcnow().isoformat()
        })
-   
+
    @health.route('/ready')
    def readiness_check():
        """Readiness check endpoint"""
@@ -379,7 +379,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
            'redis': check_redis(),
            'models': check_models()
        }
-       
+
        status = 'ready' if all(checks.values()) else 'not_ready'
        return jsonify({
            'status': status,
@@ -399,7 +399,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
        except Exception as e:
            logger.error(f"Database check failed: {e}")
            return False
-   
+
    def check_redis():
        """Check Redis connection"""
        try:
@@ -408,7 +408,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
        except Exception as e:
            logger.error(f"Redis check failed: {e}")
            return False
-   
+
    def check_models():
        """Check model availability"""
        try:
@@ -431,7 +431,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    import cProfile
    import pstats
    from functools import wraps
-   
+
    def profile_request(f):
        @wraps(f)
        def decorated_function(*args, **kwargs):
@@ -449,7 +449,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```python
    # memory_profiler.py
    from memory_profiler import profile
-   
+
    @profile
    def process_large_batch(batch_data):
        """Profile memory usage during batch processing"""
@@ -492,4 +492,4 @@ For monitoring issues:
 1. Check the [monitoring documentation](docs/monitoring.md)
 2. Review [monitoring logs](logs/)
 3. Join the [community chat](https://discord.gg/alpha-q)
-4. Contact the maintainers 
+4. Contact the maintainers

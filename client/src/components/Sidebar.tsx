@@ -1,8 +1,15 @@
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type SidebarProps = {
   activePanel: "code" | "chat" | "voice" | "agent" | "deploy" | "settings";
-  setActivePanel: (panel: "code" | "chat" | "voice" | "agent" | "deploy" | "settings") => void;
+  setActivePanel: (
+    panel: "code" | "chat" | "voice" | "agent" | "deploy" | "settings",
+  ) => void;
 };
 
 const Sidebar = ({ activePanel, setActivePanel }: SidebarProps) => {
@@ -12,7 +19,7 @@ const Sidebar = ({ activePanel, setActivePanel }: SidebarProps) => {
     { id: "voice", icon: "ri-mic-line", label: "Voice Assistant" },
     { id: "agent", icon: "ri-robot-line", label: "Agent" },
     { id: "deploy", icon: "ri-rocket-line", label: "Deploy" },
-    { id: "settings", icon: "ri-settings-3-line", label: "Settings" }
+    { id: "settings", icon: "ri-settings-3-line", label: "Settings" },
   ];
 
   return (
@@ -22,14 +29,14 @@ const Sidebar = ({ activePanel, setActivePanel }: SidebarProps) => {
           <i className="ri-ai-generate text-xl"></i>
         </div>
       </div>
-      
+
       <nav className="flex flex-col items-center space-y-6 mt-4">
         {menuItems.map((item) => (
           <TooltipProvider key={item.id}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button 
-                  className={`w-10 h-10 flex items-center justify-center rounded ${activePanel === item.id ? 'bg-gray-800' : 'hover:bg-gray-800'} ${activePanel === item.id ? 'text-primary' : ''}`} 
+                <button
+                  className={`w-10 h-10 flex items-center justify-center rounded ${activePanel === item.id ? "bg-gray-800" : "hover:bg-gray-800"} ${activePanel === item.id ? "text-primary" : ""}`}
                   title={item.label}
                   onClick={() => setActivePanel(item.id as any)}
                 >
@@ -43,7 +50,7 @@ const Sidebar = ({ activePanel, setActivePanel }: SidebarProps) => {
           </TooltipProvider>
         ))}
       </nav>
-      
+
       <div className="mt-auto">
         <button className="w-10 h-10 flex items-center justify-center rounded hover:bg-gray-800">
           <i className="ri-user-3-line text-xl"></i>

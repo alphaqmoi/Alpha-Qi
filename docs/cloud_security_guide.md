@@ -307,4 +307,4 @@ firewall_rules:
 - [AWS Security Training](https://aws.amazon.com/training/security/)
 - [GCP Security Training](https://cloud.google.com/training/security)
 - [Cloud Security Alliance](https://cloudsecurityalliance.org/education/)
-- [SANS Cloud Security](https://www.sans.org/cloud-security/) 
+- [SANS Cloud Security](https://www.sans.org/cloud-security/)

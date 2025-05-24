@@ -2,46 +2,67 @@
 
 Alpha-Q is an intelligent application builder that leverages AI to help developers create, manage, and deploy applications efficiently.
 
-## Features
+---
 
-- Natural Language & Voice AI (local text + voice)
-- Persistent Memory (Supabase DB or local DB + vector store)
-- Full-Stack Code Creation, Issue Fixing, Deployment
-- System Control & CLI Execution
-- Web Preview/Build/Deploy
-- Auth + GitHub Integration
-- Browser & Internet Automation
-- User-Centric Learning/Context Retention
+## ✨ Features
 
-## Prerequisites
+* 🧐 Natural Language & Voice AI (local text + voice)
+* 📀 Persistent Memory (Supabase DB or local DB + vector store)
+* 💻 Full-Stack Code Creation, Issue Fixing, Deployment
+* 🖥️ System Control & CLI Execution
+* 🌐 Web Preview, Build & Deploy
+* 🔐 Auth + GitHub Integration
+* 🤸‍ Browser & Internet Automation
+* 🧕 User-Centric Learning & Context Retention
 
-- Python 3.8 or higher
-- Git
-- Virtual environment (recommended)
-- Hugging Face account and API token
-- Google Colab account (optional, for cloud offloading)
-- Supabase account (optional, for database)
+---
 
-## Installation
+## ✅ Prerequisites
 
-1. Clone the repository:
+* Python 3.11+
+* Git
+* Virtual environment (recommended)
+* Hugging Face account and API token
+* Google Colab account (optional, for cloud offloading)
+* Supabase account (optional, for database)
+
+---
+
+## ⚙️ Installation
+
+### 1. Clone the repository:
+
 ```bash
 git clone https://github.com/yourusername/alpha-q.git
 cd alpha-q
 ```
 
-2. Create and activate a virtual environment:
+### 2. Run the setup script (recommended):
+
+```bash
+./setup-dev.sh  # For macOS/Linux
+# or on Windows (CMD):
+setup-dev.bat
+```
+
+<details>
+<summary>🔧 Manual setup (if not using the script)</summary>
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
+pre-commit install
+pre-commit autoupdate
 ```
 
-4. Create a `.env` file in the project root with the following variables:
+</details>
+
+---
+
+### 3. Add a `.env` file:
+
 ```env
 FLASK_APP=app.py
 FLASK_ENV=development
@@ -53,120 +74,115 @@ SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 JWT_SECRET=your-jwt-secret
 ```
 
-5. Initialize the database:
+---
+
+### 4. Initialize the database:
+
 ```bash
-flask db init
-flask db migrate
 flask db upgrade
 ```
 
-## Usage
+---
 
-1. Start the development server:
-```bash
-flask run
-```
+## 🧪 Development
 
-2. Access the application at `http://localhost:5000`
+### 🔨 Commands
 
-3. Key endpoints:
-   - `/` - Main application interface
-   - `/chat` - AI chat interface
-   - `/models` - Model management
-   - `/system` - System monitoring
-   - `/monitor` - Resource monitoring
+| Action         | Command             |
+| -------------- | ------------------- |
+| Setup          | `make setup`        |
+| Run app        | `make run`          |
+| Run prod app   | `make run-prod`     |
+| Lint code      | `make lint`         |
+| Format code    | `make format`       |
+| Run tests      | `make test`         |
+| Clean project  | `make clean`        |
+| Build Docker   | `make docker-build` |
+| Up Docker      | `make docker-up`    |
+| Down Docker    | `make docker-down`  |
+| DB Migrate     | `make migrate`      |
+| Init AI Models | `make init-models`  |
 
-## Project Structure
+---
+
+## 📂 Project Structure
 
 ```
 alpha-q/
-├── app.py              # Main application file
-├── config.py           # Configuration settings
-├── models.py           # Database models
-├── database.py         # Database integration
-├── extensions.py       # Flask extensions
-├── requirements.txt    # Project dependencies
-├── .env               # Environment variables
-├── migrations/        # Database migrations
-├── utils/            # Utility modules
+├── app.py
+├── config.py
+├── models.py
+├── database.py
+├── extensions.py
+├── requirements*.txt
+├── .env
+├── migrations/
+├── scripts/
+│   └── init_models.py
+├── utils/
 │   ├── colab_integration.py
 │   ├── cloud_controller.py
 │   ├── cloud_offloader.py
 │   └── enhanced_monitoring.py
-├── routes/           # Route modules
+├── routes/
 │   └── system_routes.py
-└── templates/        # HTML templates
-    ├── index.html
-    ├── chat.html
-    ├── models.html
-    └── system_manager.html
+├── templates/
+│   ├── index.html
+│   ├── chat.html
+│   ├── models.html
+│   └── system_manager.html
 ```
 
-## Development
+---
 
-1. Code Style:
-   - Follow PEP 8 guidelines
-   - Use Black for code formatting
-   - Use Flake8 for linting
-   - Use MyPy for type checking
+## 🌐 Web Interface
 
-2. Testing:
+* `/` - Main app interface
+* `/chat` - AI chat
+* `/models` - Model manager
+* `/system` - System control
+* `/monitor` - Monitoring dashboard
+
+---
+
+## 🧪 Testing & Formatting
+
 ```bash
-pytest
+pytest              # Run tests
+black .             # Format code
+flake8              # Lint
+mypy .              # Type check
 ```
 
-3. Code Formatting:
+---
+
+## 📦 Yarn-based Web Interface (optional frontend)
+
 ```bash
-black .
-flake8
-mypy .
+yarn dev        # Start dev server
+yarn build      # Build production assets
+yarn start      # Start production server
+yarn check      # TypeScript check
+yarn db:push    # Push DB changes (Drizzle ORM)
 ```
 
-## Contributing
+---
 
-1. Fork the repository
+## 👍 Contributing
+
+1. Fork the repo
 2. Create a feature branch
 3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-🚀 Running and Building the Project with Yarn
-Replace your npm commands with their Yarn equivalents:
+4. Push and open a PR
 
-Run Development Server:
+---
 
-bash
-Copy
-Edit
-  yarn dev
-Build the Project:
+## 📄 License
 
-bash
-Copy
-Edit
-  yarn build
-Start the Application:
+MIT License — see `LICENSE` for full details.
 
-bash
-Copy
-Edit
-  yarn start
-Check TypeScript Types:
+---
 
-bash
-Copy
-Edit
-  yarn check
-Push Database Changes (Drizzle ORM):
+## 🛠️ Support
 
-bash
-Copy
-Edit
-  yarn db:push
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support, please open an issue in the GitHub repository or contact the maintainers.
+Please open an issue or reach out via GitHub Discussions.

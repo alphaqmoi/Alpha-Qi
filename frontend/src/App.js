@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from "react";
 import {
   Container,
   Box,
@@ -20,42 +20,42 @@ import {
   List,
   ListItem,
   ListItemText,
-} from '@mui/material';
-import SendIcon from '@mui/icons-material/Send';
-import MicIcon from '@mui/icons-material/Mic';
-import VolumeUpIcon from '@mui/icons-material/VolumeUp';
-import HistoryIcon from '@mui/icons-material/History';
-import ReactMarkdown from 'react-markdown';
-import axios from 'axios';
+} from "@mui/material";
+import SendIcon from "@mui/icons-material/Send";
+import MicIcon from "@mui/icons-material/Mic";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
+import HistoryIcon from "@mui/icons-material/History";
+import ReactMarkdown from "react-markdown";
+import axios from "axios";
 
 const theme = createTheme({
   palette: {
-    mode: 'dark',
+    mode: "dark",
     primary: {
-      main: '#90caf9',
+      main: "#90caf9",
     },
     secondary: {
-      main: '#f48fb1',
+      main: "#f48fb1",
     },
     background: {
-      default: '#121212',
-      paper: '#1e1e1e',
+      default: "#121212",
+      paper: "#1e1e1e",
     },
   },
 });
 
 function App() {
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [streaming, setStreaming] = useState(true);
-  const [summarizeText, setSummarizeText] = useState('');
-  const [summary, setSummary] = useState('');
+  const [summarizeText, setSummarizeText] = useState("");
+  const [summary, setSummary] = useState("");
   const [summarizeLoading, setSummarizeLoading] = useState(false);
   const [summarizeError, setSummarizeError] = useState(null);
   const [availableModels, setAvailableModels] = useState({});
-  const [selectedModel, setSelectedModel] = useState('gpt2');
+  const [selectedModel, setSelectedModel] = useState("gpt2");
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -65,25 +65,25 @@ function App() {
 
   useEffect(() => {
     // Load available models
-    fetch('/models')
-      .then(res => res.json())
-      .then(data => setAvailableModels(data))
-      .catch(err => setError('Failed to load models'));
+    fetch("/models")
+      .then((res) => res.json())
+      .then((data) => setAvailableModels(data))
+      .catch((err) => setError("Failed to load models"));
   }, []);
 
   const handleModelChange = async (event) => {
     const newModel = event.target.value;
     try {
-      const response = await fetch('/change_model', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/change_model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model_name: newModel }),
       });
       if (response.ok) {
         setSelectedModel(newModel);
       }
     } catch (err) {
-      setError('Failed to change model');
+      setError("Failed to change model");
     }
   };
 
@@ -98,26 +98,28 @@ function App() {
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/wav",
+        });
         const formData = new FormData();
-        formData.append('audio', audioBlob);
+        formData.append("audio", audioBlob);
 
         try {
-          const response = await fetch('/speech-to-text', {
-            method: 'POST',
+          const response = await fetch("/speech-to-text", {
+            method: "POST",
             body: formData,
           });
           const data = await response.json();
           setMessage(data.text);
         } catch (err) {
-          setError('Failed to convert speech to text');
+          setError("Failed to convert speech to text");
         }
       };
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
     } catch (err) {
-      setError('Failed to access microphone');
+      setError("Failed to access microphone");
     }
   };
 
@@ -132,9 +134,9 @@ function App() {
     if (isSpeaking) return;
     setIsSpeaking(true);
     try {
-      const response = await fetch('/text-to-speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/text-to-speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
       const audioBlob = await response.blob();
@@ -143,7 +145,7 @@ function App() {
       audio.onended = () => setIsSpeaking(false);
       audio.play();
     } catch (err) {
-      setError('Failed to convert text to speech');
+      setError("Failed to convert text to speech");
       setIsSpeaking(false);
     }
   };
@@ -155,19 +157,19 @@ function App() {
     setError(null);
 
     if (streaming) {
-      let assistantMsg = '';
+      let assistantMsg = "";
       setChatHistory((prev) => [
         ...prev,
-        { role: 'user', content: message },
-        { role: 'assistant', content: '' },
+        { role: "user", content: message },
+        { role: "assistant", content: "" },
       ]);
       try {
-        const response = await fetch('/ask_stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch("/ask_stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message, history: chatHistory }),
         });
-        if (!response.body) throw new Error('No response body');
+        if (!response.body) throw new Error("No response body");
         const reader = response.body.getReader();
         let done = false;
         while (!done) {
@@ -175,9 +177,9 @@ function App() {
           done = doneReading;
           if (value) {
             const chunk = new TextDecoder().decode(value);
-            chunk.split('data: ').forEach((token) => {
+            chunk.split("data: ").forEach((token) => {
               if (token.trim()) {
-                assistantMsg += token.replace(/\n/g, '');
+                assistantMsg += token.replace(/\n/g, "");
                 setChatHistory((prev) => {
                   const updated = [...prev];
                   updated[updated.length - 1] = {
@@ -190,7 +192,7 @@ function App() {
             });
           }
         }
-        setMessage('');
+        setMessage("");
       } catch (err) {
         setError(err.message);
       } finally {
@@ -198,10 +200,10 @@ function App() {
       }
     } else {
       try {
-        const response = await fetch('/ask', {
-          method: 'POST',
+        const response = await fetch("/ask", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             message,
@@ -209,15 +211,15 @@ function App() {
           }),
         });
         if (!response.ok) {
-          throw new Error('Failed to get response');
+          throw new Error("Failed to get response");
         }
         const data = await response.json();
         setChatHistory([
           ...chatHistory,
-          { role: 'user', content: message },
-          { role: 'assistant', content: data['AI Message'] },
+          { role: "user", content: message },
+          { role: "assistant", content: data["AI Message"] },
         ]);
-        setMessage('');
+        setMessage("");
       } catch (err) {
         setError(err.message);
       } finally {
@@ -229,9 +231,9 @@ function App() {
   const handleSummarize = async () => {
     setSummarizeLoading(true);
     setSummarizeError(null);
-    setSummary('');
+    setSummary("");
     try {
-      const res = await axios.post('/summarize', { text: summarizeText });
+      const res = await axios.post("/summarize", { text: summarizeText });
       setSummary(res.data.summary);
     } catch (err) {
       setSummarizeError(err.response?.data?.error || err.message);
@@ -243,37 +245,56 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Container maxWidth="md" sx={{ height: '100vh', py: 4 }}>
+      <Container maxWidth="md" sx={{ height: "100vh", py: 4 }}>
         <Paper
           elevation={3}
           sx={{
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
           }}
         >
-          <Box sx={{ p: 2, bgcolor: 'primary.main', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box
+            sx={{
+              p: 2,
+              bgcolor: "primary.main",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
             <Typography variant="h5" component="h1" color="white">
               AI Chat
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <Select
                 value={selectedModel}
                 onChange={handleModelChange}
                 size="small"
-                sx={{ bgcolor: 'white', minWidth: 150 }}
+                sx={{ bgcolor: "white", minWidth: 150 }}
               >
                 {Object.entries(availableModels).map(([id, name]) => (
-                  <MenuItem key={id} value={id}>{name}</MenuItem>
+                  <MenuItem key={id} value={id}>
+                    {name}
+                  </MenuItem>
                 ))}
               </Select>
               <FormControlLabel
-                control={<Switch checked={streaming} onChange={() => setStreaming((v) => !v)} color="secondary" />}
+                control={
+                  <Switch
+                    checked={streaming}
+                    onChange={() => setStreaming((v) => !v)}
+                    color="secondary"
+                  />
+                }
                 label="Streaming"
-                sx={{ color: 'white' }}
+                sx={{ color: "white" }}
               />
-              <IconButton onClick={() => setHistoryDrawerOpen(true)} color="inherit">
+              <IconButton
+                onClick={() => setHistoryDrawerOpen(true)}
+                color="inherit"
+              >
                 <HistoryIcon />
               </IconButton>
             </Box>
@@ -282,10 +303,10 @@ function App() {
           <Box
             sx={{
               flex: 1,
-              overflow: 'auto',
+              overflow: "auto",
               p: 2,
-              display: 'flex',
-              flexDirection: 'column',
+              display: "flex",
+              flexDirection: "column",
               gap: 2,
             }}
           >
@@ -293,20 +314,21 @@ function App() {
               <Box
                 key={index}
                 sx={{
-                  alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                  maxWidth: '70%',
+                  alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
+                  maxWidth: "70%",
                 }}
               >
                 <Paper
                   elevation={1}
                   sx={{
                     p: 2,
-                    bgcolor: msg.role === 'user' ? 'primary.main' : 'background.paper',
+                    bgcolor:
+                      msg.role === "user" ? "primary.main" : "background.paper",
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    {msg.role === 'assistant' && (
+                    {msg.role === "assistant" && (
                       <IconButton
                         size="small"
                         onClick={() => speakText(msg.content)}
@@ -320,12 +342,12 @@ function App() {
               </Box>
             ))}
             {loading && (
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+              <Box sx={{ display: "flex", justifyContent: "center" }}>
                 <CircularProgress />
               </Box>
             )}
             {error && (
-              <Typography color="error" sx={{ textAlign: 'center' }}>
+              <Typography color="error" sx={{ textAlign: "center" }}>
                 {error}
               </Typography>
             )}
@@ -336,10 +358,10 @@ function App() {
             onSubmit={handleSubmit}
             sx={{
               p: 2,
-              bgcolor: 'background.paper',
+              bgcolor: "background.paper",
               borderTop: 1,
-              borderColor: 'divider',
-              display: 'flex',
+              borderColor: "divider",
+              display: "flex",
               gap: 1,
             }}
           >
@@ -385,7 +407,7 @@ function App() {
               onChange={(e) => setSummarizeText(e.target.value)}
               disabled={summarizeLoading}
             />
-            <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+            <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
               <Button
                 variant="contained"
                 color="secondary"
@@ -425,11 +447,13 @@ function App() {
               {chatHistory.map((msg, index) => (
                 <ListItem key={index} divider>
                   <ListItemText
-                    primary={msg.role === 'user' ? 'You' : 'AI'}
+                    primary={msg.role === "user" ? "You" : "AI"}
                     secondary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
                         <Typography variant="body2">{msg.content}</Typography>
-                        {msg.role === 'assistant' && (
+                        {msg.role === "assistant" && (
                           <IconButton
                             size="small"
                             onClick={() => speakText(msg.content)}
@@ -451,4 +475,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;

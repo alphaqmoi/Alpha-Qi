@@ -1,4 +1,4 @@
-import { VoiceInterface } from '@/components/VoiceInterface';
+import { VoiceInterface } from "@/components/VoiceInterface";
 
 export default function Home() {
   return (
@@ -8,13 +8,13 @@ export default function Home() {
         <p className="text-center mb-8">
           AI-powered development assistant with voice capabilities
         </p>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="p-6 border rounded-lg">
             <h2 className="text-2xl font-semibold mb-4">Voice Interface</h2>
             <VoiceInterface />
           </div>
-          
+
           <div className="p-6 border rounded-lg">
             <h2 className="text-2xl font-semibold mb-4">Features</h2>
             <ul className="list-disc list-inside space-y-2">
@@ -29,4 +29,4 @@ export default function Home() {
       </div>
     </main>
   );
-} 
+}

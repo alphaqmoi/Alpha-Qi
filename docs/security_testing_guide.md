@@ -40,13 +40,13 @@ def test_password_hashing(self, security_test_client, security_config):
     """Test password hashing security."""
     client, _ = security_test_client()
     password = "Test@123456"
-    
+
     # Test password hashing
     response = client.post("/api/auth/register", json={
         "username": "testuser",
         "password": password
     })
-    
+
     assert response.status_code == 201
     assert response.json['password'] != password  # Password should be hashed
 ```
@@ -66,11 +66,11 @@ Example:
 def test_role_based_access(self, security_test_client, security_config):
     """Test role-based access control."""
     client, _ = security_test_client()
-    
+
     # Test user access
     user_response = client.get("/api/user/profile")
     assert user_response.status_code == 200
-    
+
     # Test admin access
     admin_response = client.get("/api/admin/users")
     assert admin_response.status_code == 403  # Forbidden
@@ -92,13 +92,13 @@ def test_rate_limiting(self, security_test_client, security_config):
     """Test API rate limiting."""
     client, _ = security_test_client()
     max_requests = security_config['api']['rate_limit']['max_requests']
-    
+
     # Make multiple requests
     responses = []
     for _ in range(max_requests + 1):
         response = client.get("/api/test")
         responses.append(response)
-    
+
     assert responses[-1].status_code == 429  # Too Many Requests
 ```
 
@@ -118,11 +118,11 @@ def test_data_encryption(self, security_test_client, security_config):
     """Test data encryption."""
     client, _ = security_test_client()
     sensitive_data = {"credit_card": "4111111111111111"}
-    
+
     # Store encrypted data
     response = client.post("/api/data", json=sensitive_data)
     assert response.status_code == 201
-    
+
     # Verify data is encrypted
     stored_data = client.get("/api/data/raw").json
     assert stored_data['credit_card'] != sensitive_data['credit_card']
@@ -143,12 +143,12 @@ Example:
 def test_file_upload_validation(self, security_test_client, security_config):
     """Test file upload validation."""
     client, _ = security_test_client()
-    
+
     # Test allowed file type
     with open("test.txt", "rb") as f:
         response = client.post("/api/files", files={"file": f})
     assert response.status_code == 201
-    
+
     # Test disallowed file type
     with open("test.exe", "rb") as f:
         response = client.post("/api/files", files={"file": f})
@@ -170,11 +170,11 @@ Example:
 def test_ssl_tls_configuration(self, security_test_client, security_config):
     """Test SSL/TLS configuration."""
     client, _ = security_test_client()
-    
+
     # Get SSL info
     response = client.get("/api/ssl-info")
     ssl_info = response.json
-    
+
     assert ssl_info['protocol'] in ['TLSv1.2', 'TLSv1.3']
     assert 'TLSv1.0' not in ssl_info['protocols']
 ```
@@ -199,17 +199,17 @@ Example:
 def test_cloud_storage_security(self, security_test_client, security_config):
     """Test cloud storage security."""
     client, _ = security_test_client()
-    
+
     # Test encrypted storage
     test_data = {"sensitive": "data"}
     upload_response = client.post("/api/cloud/storage/upload", json={
         "data": test_data,
         "encrypt": True
     })
-    
+
     # Verify encryption
     download_response = client.get(f"/api/cloud/storage/{upload_response.json['id']}")
-    
+
     assert upload_response.status_code == 201
     assert download_response.json['data'] == test_data
 ```
@@ -234,17 +234,17 @@ Example:
 def test_container_image_security(self, security_test_client, security_config):
     """Test container image security."""
     client, _ = security_test_client()
-    
+
     # Test image scanning
     scan_response = client.post("/api/container/images/scan", json={
         "image": "test-image:latest"
     })
-    
+
     # Test image signing
     sign_response = client.post("/api/container/images/sign", json={
         "image": "test-image:latest"
     })
-    
+
     assert scan_response.status_code == 200
     assert sign_response.status_code == 200
     assert scan_response.json['vulnerabilities'] == []
@@ -563,4 +563,4 @@ Test reports are generated in the `tests/security/reports` directory:
    - Container platform teams
    - Security operations teams
    - DevOps teams
-   - Container security forums 
+   - Container security forums

@@ -55,4 +55,4 @@ To create a custom template:
 1. Copy an existing template
 2. Modify the configuration
 3. Add to the templates directory
-4. Register in `templates.json` 
+4. Register in `templates.json`

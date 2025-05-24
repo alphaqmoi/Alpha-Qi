@@ -11,7 +11,7 @@ This guide provides solutions for common issues encountered when using Google Co
    # Check credentials file
    ls -l client_secrets.json
    ls -l credentials.json
-   
+
    # Verify environment variables
    echo $GOOGLE_CLIENT_SECRETS
    echo $GOOGLE_CREDENTIALS_PATH
@@ -279,4 +279,4 @@ When reporting issues, please include:
 - System information
 - Steps to reproduce
 - Expected vs actual behavior
-- Relevant logs 
+- Relevant logs

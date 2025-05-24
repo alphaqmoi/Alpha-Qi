@@ -418,4 +418,4 @@ alpha-q/
 - Check the [documentation](docs/)
 - Search [issues](https://github.com/yourusername/alpha-q/issues)
 - Join the [community chat](https://discord.gg/alpha-q)
-- Contact the maintainers 
+- Contact the maintainers

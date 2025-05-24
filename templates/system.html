@@ -7,14 +7,14 @@
     .system-page {
         padding: 1rem;
     }
-    
+
     .settings-card {
         background: white;
         border-radius: 12px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         margin-bottom: 1rem;
     }
-    
+
     .settings-header {
         padding: 1rem;
         border-bottom: 1px solid #eee;
@@ -22,18 +22,18 @@
         justify-content: space-between;
         align-items: center;
     }
-    
+
     .settings-header h5 {
         margin: 0;
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
-    
+
     .settings-body {
         padding: 1rem;
     }
-    
+
     .settings-footer {
         padding: 1rem;
         border-top: 1px solid #eee;
@@ -41,7 +41,7 @@
         justify-content: flex-end;
         gap: 0.5rem;
     }
-    
+
     .status-indicator {
         width: 12px;
         height: 12px;
@@ -49,56 +49,56 @@
         display: inline-block;
         margin-right: 0.5rem;
     }
-    
+
     .status-online {
         background-color: var(--success-color);
     }
-    
+
     .status-offline {
         background-color: var(--danger-color);
     }
-    
+
     .status-warning {
         background-color: var(--warning-color);
     }
-    
+
     .status-loading {
         background-color: var(--warning-color);
         animation: pulse 1.5s infinite;
     }
-    
+
     @keyframes pulse {
         0% { opacity: 1; }
         50% { opacity: 0.5; }
         100% { opacity: 1; }
     }
-    
+
     .resource-usage {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 1rem;
         margin-bottom: 1rem;
     }
-    
+
     .resource-card {
         background: var(--light-bg);
         padding: 1rem;
         border-radius: 8px;
         text-align: center;
     }
-    
+
     .resource-value {
         font-size: 1.5rem;
         font-weight: bold;
         color: var(--primary-color);
         margin-bottom: 0.25rem;
     }
-    
+
     .resource-label {
         font-size: 0.9rem;
         color: var(--text-secondary);
     }
-    
+
     .resource-progress {
         height: 4px;
         background: #eee;
@@ -106,21 +106,21 @@
         margin-top: 0.5rem;
         overflow: hidden;
     }
-    
+
     .resource-progress-bar {
         height: 100%;
         background: var(--primary-color);
         transition: width 0.3s ease;
     }
-    
+
     .resource-progress-bar.warning {
         background: var(--warning-color);
     }
-    
+
     .resource-progress-bar.danger {
         background: var(--danger-color);
     }
-    
+
     .log-entry {
         padding: 0.5rem;
         border-radius: 4px;
@@ -128,72 +128,72 @@
         font-family: monospace;
         font-size: 0.9rem;
     }
-    
+
     .log-entry.info {
         background: rgba(33, 150, 243, 0.1);
         color: #1976D2;
     }
-    
+
     .log-entry.warning {
         background: rgba(255, 193, 7, 0.1);
         color: #F57C00;
     }
-    
+
     .log-entry.error {
         background: rgba(244, 67, 54, 0.1);
         color: #D32F2F;
     }
-    
+
     .log-entry .timestamp {
         color: var(--text-secondary);
         margin-right: 0.5rem;
     }
-    
+
     /* Dark mode adjustments */
     @media (prefers-color-scheme: dark) {
         .settings-card {
             background: #37474F;
         }
-        
+
         .settings-header, .settings-footer {
             border-color: #455A64;
         }
-        
+
         .resource-card {
             background: #455A64;
         }
-        
+
         .resource-progress {
             background: #546E7A;
         }
-        
+
         .log-entry.info {
             background: rgba(33, 150, 243, 0.2);
         }
-        
+
         .log-entry.warning {
             background: rgba(255, 193, 7, 0.2);
         }
-        
+
         .log-entry.error {
             background: rgba(244, 67, 54, 0.2);
         }
     }
-    
+
     /* Mobile optimizations */
     @media (max-width: 768px) {
         .system-page {
             padding: 0.5rem;
         }
-        
+
         .resource-usage {
             grid-template-columns: 1fr;
         }
-        
+
         .settings-footer {
             flex-direction: column;
         }
-        
+
         .settings-footer button {
             width: 100%;
         }
@@ -246,7 +246,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="row">
                 <div class="col-md-6">
                     <h6 class="mb-3">Services</h6>
@@ -309,7 +309,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- System Settings -->
     <div class="settings-card">
         <div class="settings-header">
@@ -361,7 +361,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="row mt-4">
                     <div class="col-md-6">
                         <h6 class="mb-3">Security</h6>
@@ -413,7 +413,7 @@
             <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
         </div>
     </div>
-    
+
     <!-- Maintenance -->
     <div class="settings-card">
         <div class="settings-header">
@@ -466,16 +466,16 @@
 function refreshStatus() {
     // TODO: Implement status refresh
     console.log('Refreshing system status...');
-    
+
     // Show loading state
     const button = event.target.closest('button');
     const icon = button.querySelector('i');
     icon.classList.add('fa-spin');
-    
+
     // Simulate API call
     setTimeout(() => {
         icon.classList.remove('fa-spin');
-        
+
         // Show success message
         Swal.fire({
             toast: true,
@@ -493,10 +493,10 @@ function saveSettings() {
     const form = document.getElementById('systemSettingsForm');
     const formData = new FormData(form);
     const settings = Object.fromEntries(formData.entries());
-    
+
     // TODO: Send to backend
     console.log('Saving settings:', settings);
-    
+
     // Show success message
     Swal.fire({
         toast: true,
@@ -520,7 +520,7 @@ function resetSettings() {
         if (result.isConfirmed) {
             // TODO: Reset settings
             console.log('Resetting settings...');
-            
+
             // Show success message
             Swal.fire({
                 toast: true,
@@ -547,7 +547,7 @@ function clearCache() {
         if (result.isConfirmed) {
             // TODO: Clear cache
             console.log('Clearing cache...');
-            
+
             // Show success message
             Swal.fire({
                 toast: true,
@@ -573,7 +573,7 @@ function optimizeDatabase() {
         if (result.isConfirmed) {
             // TODO: Optimize database
             console.log('Optimizing database...');
-            
+
             // Show loading state
             Swal.fire({
                 title: 'Optimizing Database',
@@ -583,7 +583,7 @@ function optimizeDatabase() {
                     Swal.showLoading();
                 }
             });
-            
+
             // Simulate optimization
             setTimeout(() => {
                 Swal.fire({
@@ -602,7 +602,7 @@ function optimizeDatabase() {
 function backupSystem() {
     // TODO: Implement backup
     console.log('Backing up system...');
-    
+
     // Show loading state
     Swal.fire({
         title: 'Creating Backup',
@@ -612,7 +612,7 @@ function backupSystem() {
             Swal.showLoading();
         }
     });
-    
+
     // Simulate backup
     setTimeout(() => {
         Swal.fire({
@@ -638,7 +638,7 @@ function restartSystem() {
         if (result.isConfirmed) {
             // TODO: Restart system
             console.log('Restarting system...');
-            
+
             // Show loading state
             Swal.fire({
                 title: 'Restarting System',
@@ -648,7 +648,7 @@ function restartSystem() {
                     Swal.showLoading();
                 }
             });
-            
+
             // Simulate restart
             setTimeout(() => {
                 window.location.reload();
@@ -670,7 +670,7 @@ function resetSystem() {
         if (result.isConfirmed) {
             // TODO: Reset system
             console.log('Resetting system...');
-            
+
             // Show loading state
             Swal.fire({
                 title: 'Resetting System',
@@ -680,7 +680,7 @@ function resetSystem() {
                     Swal.showLoading();
                 }
             });
-            
+
             // Simulate reset
             setTimeout(() => {
                 window.location.reload();
@@ -694,4 +694,4 @@ $(document).ready(function() {
     // Add any initialization code here
 });
 </script>
-{% endblock %} 
+{% endblock %}

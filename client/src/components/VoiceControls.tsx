@@ -1,5 +1,11 @@
 import { useAudioAssistant } from "@/hooks/useAudioAssistant";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -11,28 +17,30 @@ type VoiceControlsProps = {
 
 const VoiceControls = ({ onVoiceInput }: VoiceControlsProps) => {
   const [autoPlayResponses, setAutoPlayResponses] = useState(true);
-  const [testText, setTestText] = useState("Hello, I'm Alpha-Q AI assistant. How can I help you today?");
-  
-  const { 
-    isListening, 
+  const [testText, setTestText] = useState(
+    "Hello, I'm Alpha-Q AI assistant. How can I help you today?",
+  );
+
+  const {
+    isListening,
     isSpeaking,
     voiceOptions,
     selectedVoice,
     setSelectedVoice,
     startListening,
     stopListening,
-    speak
+    speak,
   } = useAudioAssistant({
     onTranscription: (text) => {
       if (onVoiceInput) {
         onVoiceInput(text);
       }
     },
-    onResponse: () => {}
+    onResponse: () => {},
   });
 
   const handleVoiceChange = (value: string) => {
-    const voice = voiceOptions.find(v => v.name === value);
+    const voice = voiceOptions.find((v) => v.name === value);
     if (voice) {
       setSelectedVoice(voice);
     }
@@ -46,11 +54,11 @@ const VoiceControls = ({ onVoiceInput }: VoiceControlsProps) => {
     <div className="p-4 space-y-6">
       <div>
         <h2 className="text-lg font-semibold mb-4">Voice Assistant Settings</h2>
-        
+
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="voice-select">Voice</Label>
-            <Select 
+            <Select
               value={selectedVoice?.name || ""}
               onValueChange={handleVoiceChange}
             >
@@ -66,16 +74,16 @@ const VoiceControls = ({ onVoiceInput }: VoiceControlsProps) => {
               </SelectContent>
             </Select>
           </div>
-          
+
           <div className="flex items-center justify-between">
             <Label htmlFor="auto-play">Auto-play voice responses</Label>
-            <Switch 
-              id="auto-play" 
-              checked={autoPlayResponses} 
+            <Switch
+              id="auto-play"
+              checked={autoPlayResponses}
               onCheckedChange={setAutoPlayResponses}
             />
           </div>
-          
+
           <div className="space-y-2">
             <Label htmlFor="test-text">Test text</Label>
             <textarea
@@ -85,7 +93,7 @@ const VoiceControls = ({ onVoiceInput }: VoiceControlsProps) => {
               onChange={(e) => setTestText(e.target.value)}
             />
           </div>
-          
+
           <div className="flex space-x-2">
             <Button
               className="flex-1"
@@ -102,9 +110,9 @@ const VoiceControls = ({ onVoiceInput }: VoiceControlsProps) => {
                 </span>
               )}
             </Button>
-            
+
             <Button
-              className={`flex-1 ${isListening ? 'bg-accent hover:bg-accent/90' : ''}`}
+              className={`flex-1 ${isListening ? "bg-accent hover:bg-accent/90" : ""}`}
               onClick={isListening ? stopListening : startListening}
             >
               {isListening ? (

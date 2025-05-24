@@ -2,39 +2,42 @@ import { useState, useRef, useEffect } from "react";
 
 const Terminal = () => {
   const [commandHistory, setCommandHistory] = useState<string[]>([
-    "[INFO] Terminal ready"
+    "[INFO] Terminal ready",
   ]);
   const [currentCommand, setCurrentCommand] = useState("");
   const terminalRef = useRef<HTMLDivElement>(null);
-  
+
   const executeCommand = async (command: string) => {
     if (!command.trim()) return;
-    
+
     // Add command to history
-    setCommandHistory(prev => [...prev, `$ ${command}`]);
+    setCommandHistory((prev) => [...prev, `$ ${command}`]);
     setCurrentCommand("");
-    
+
     try {
       // Send command to backend
       const response = await fetch("/api/terminal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command })
+        body: JSON.stringify({ command }),
       });
-      
+
       if (!response.ok) {
         throw new Error(`Error: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Add result to history
       if (data.output) {
-        setCommandHistory(prev => [...prev, data.output]);
+        setCommandHistory((prev) => [...prev, data.output]);
       }
     } catch (error) {
       console.error("Error executing command:", error);
-      setCommandHistory(prev => [...prev, "Error executing command. Please try again."]);
+      setCommandHistory((prev) => [
+        ...prev,
+        "Error executing command. Please try again.",
+      ]);
     }
   };
 
@@ -43,7 +46,7 @@ const Terminal = () => {
       executeCommand(currentCommand);
     }
   };
-  
+
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
@@ -52,7 +55,7 @@ const Terminal = () => {
 
   return (
     <>
-      <div 
+      <div
         ref={terminalRef}
         className="flex-1 bg-darker overflow-y-auto font-mono text-xs p-3 scrollbar-thin"
       >
@@ -60,7 +63,8 @@ const Terminal = () => {
           <div key={index} className="terminal-text mb-1">
             {line.startsWith("$") ? (
               <span>
-                <span className="text-green-400">$</span>{line.substring(1)}
+                <span className="text-green-400">$</span>
+                {line.substring(1)}
               </span>
             ) : line.startsWith("[INFO]") ? (
               <span className="text-gray-400">{line}</span>
@@ -76,12 +80,12 @@ const Terminal = () => {
           </div>
         ))}
       </div>
-      
+
       <div className="px-3 py-2 border-t border-gray-800 flex items-center">
         <span className="text-green-400 text-xs mr-2">$</span>
-        <input 
-          type="text" 
-          className="flex-1 bg-darker text-light text-xs font-mono focus:outline-none" 
+        <input
+          type="text"
+          className="flex-1 bg-darker text-light text-xs font-mono focus:outline-none"
           placeholder="Enter command..."
           value={currentCommand}
           onChange={(e) => setCurrentCommand(e.target.value)}

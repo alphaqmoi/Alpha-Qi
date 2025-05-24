@@ -277,4 +277,4 @@ spec:
 - [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker/)
 - [CIS Kubernetes Benchmark](https://www.cisecurity.org/benchmark/kubernetes/)
 - [NIST Container Security](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-190.pdf)
-- [OWASP Container Security](https://owasp.org/www-project-container-security/) 
+- [OWASP Container Security](https://owasp.org/www-project-container-security/)

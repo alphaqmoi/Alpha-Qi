@@ -21,45 +21,45 @@ models:
 
 # Runtime Configuration
 runtime:
-  gpu_type: "T4"  # Options: T4, P100, V100, A100
+  gpu_type: "T4" # Options: T4, P100, V100, A100
   runtime_type: "python3"
   memory_limit: "16GB"
   disk_size: "100GB"
   auto_restart: true
   monitoring: true
-  check_interval: 300  # seconds
+  check_interval: 300 # seconds
 
 # Server Configuration
 server:
   host: "0.0.0.0"
   port: 8080
   max_workers: 4
-  timeout: 300  # seconds
+  timeout: 300 # seconds
   max_requests: 1000
-  rate_limit: 100  # requests per minute
+  rate_limit: 100 # requests per minute
 
 # Resource Management
 resources:
-  gpu_memory_threshold: 0.8  # 80% of available GPU memory
-  cpu_threshold: 0.9  # 90% of available CPU
-  memory_threshold: 0.9  # 90% of available RAM
-  disk_threshold: 0.8  # 80% of available disk space
+  gpu_memory_threshold: 0.8 # 80% of available GPU memory
+  cpu_threshold: 0.9 # 90% of available CPU
+  memory_threshold: 0.9 # 90% of available RAM
+  disk_threshold: 0.8 # 80% of available disk space
 
 # Model Management
 model_management:
   cache_dir: "/content/model_cache"
   auto_cleanup: true
-  cleanup_threshold: 0.9  # Cleanup when disk usage exceeds 90%
+  cleanup_threshold: 0.9 # Cleanup when disk usage exceeds 90%
   max_cache_size: "50GB"
-  model_timeout: 600  # seconds
+  model_timeout: 600 # seconds
 
 # Monitoring and Logging
 monitoring:
   enabled: true
-  metrics_interval: 5  # seconds
+  metrics_interval: 5 # seconds
   log_level: "INFO"
   save_metrics: true
-  metrics_retention: 24  # hours
+  metrics_retention: 24 # hours
   alert_thresholds:
     gpu_memory: 0.9
     cpu_usage: 0.9
@@ -69,13 +69,13 @@ monitoring:
 # Security
 security:
   enable_auth: true
-  token_expiry: 3600  # seconds
+  token_expiry: 3600 # seconds
   max_tokens_per_user: 1000
   allowed_origins:
     - "http://localhost:5000"
     - "https://alphaq.app"
   rate_limit_by_ip: true
-  max_requests_per_ip: 100  # per minute
+  max_requests_per_ip: 100 # per minute
 
 # Fallback Configuration
 fallback:
@@ -86,7 +86,7 @@ fallback:
     - "huggingface"
     - "local"
   retry_attempts: 3
-  retry_delay: 5  # seconds
+  retry_delay: 5 # seconds
 
 # Custom Templates
 templates:
@@ -104,9 +104,9 @@ templates:
 # Backup and Recovery
 backup:
   enabled: true
-  interval: 3600  # seconds
+  interval: 3600 # seconds
   max_backups: 24
   backup_dir: "/content/backups"
   include_models: true
   include_config: true
-  compression: true 
+  compression: true

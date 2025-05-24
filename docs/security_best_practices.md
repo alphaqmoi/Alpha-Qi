@@ -197,4 +197,4 @@ This document outlines security best practices for the application, covering clo
 - Document alert procedures
 - Test alerting system
 - Regular metric reviews
-- Update monitoring as needed 
+- Update monitoring as needed

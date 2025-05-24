@@ -1,11 +1,11 @@
-import path from 'path';
+import path from "path";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 // DEBUG: Log the resolved client root folder
-const clientRoot = path.resolve(__dirname, '../client');
-console.log('[vite.ts] clientRoot resolved to:', clientRoot);
+const clientRoot = path.resolve(__dirname, "../client");
+console.log("[vite.ts] clientRoot resolved to:", clientRoot);
 // Expected output: Q:\DevGenius\DevQmoi\client
 
 const app = express();
@@ -64,11 +64,14 @@ app.use((req, res, next) => {
 
   // Always listen on port 5000, accessible externally
   const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
+  server.listen(
+    {
+      port,
+      host: "0.0.0.0",
+      reusePort: true,
+    },
+    () => {
+      log(`serving on port ${port}`);
+    },
+  );
 })();

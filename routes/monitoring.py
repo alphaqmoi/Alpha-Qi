@@ -1,19 +1,29 @@
 """Monitoring API endpoints with enhanced features."""
 
+from typing import Dict, List
+
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict
-from utils.enhanced_monitoring import get_monitor, SystemMetrics, SystemAlert, ActiveTask
 from pydantic import BaseModel
+
+from utils.enhanced_monitoring import (
+    ActiveTask,
+    SystemAlert,
+    SystemMetrics,
+    get_monitor,
+)
 
 router = APIRouter(prefix="/api/system", tags=["monitoring"])
 
+
 class SystemStatus(BaseModel):
     """System status response model"""
+
     health_score: float
     metrics: SystemMetrics
     alerts: List[SystemAlert]
     tasks: List[ActiveTask]
     analytics: Dict[str, float]
+
 
 @router.get("/status", response_model=SystemStatus)
 async def get_system_status():
@@ -25,10 +35,11 @@ async def get_system_status():
             metrics=monitor.get_current_metrics(),
             alerts=monitor.get_active_alerts(),
             tasks=monitor.get_active_tasks(),
-            analytics=monitor.get_performance_analytics()
+            analytics=monitor.get_performance_analytics(),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/metrics", response_model=SystemMetrics)
 async def get_current_metrics():
@@ -38,6 +49,7 @@ async def get_current_metrics():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/alerts", response_model=List[SystemAlert])
 async def get_alerts():
     """Get active system alerts"""
@@ -45,6 +57,7 @@ async def get_alerts():
         return get_monitor().get_active_alerts()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/tasks", response_model=List[ActiveTask])
 async def get_tasks():
@@ -54,6 +67,7 @@ async def get_tasks():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/analytics")
 async def get_analytics():
     """Get system performance analytics"""
@@ -62,14 +76,15 @@ async def get_analytics():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/history")
 async def get_metrics_history(duration: int = 3600):
     """Get historical metrics for the specified duration in seconds"""
     try:
         history = get_monitor().get_metrics_history(duration)
         return {
-            'metrics': [m[0].model_dump() for m in history],
-            'performance': [m[1].model_dump() for m in history]
+            "metrics": [m[0].model_dump() for m in history],
+            "performance": [m[1].model_dump() for m in history],
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
