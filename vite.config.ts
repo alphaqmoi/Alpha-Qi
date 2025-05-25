@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
 
   return {
-    root: path.resolve(__dirname, 'client'), // Serve files from /client
+    root: path.resolve(__dirname, 'client'), // Vite root is the client folder
     plugins: [
       react(),
       runtimeErrorOverlay(),
@@ -20,13 +20,15 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // optional: watch config, if your OS needs it
       watch: {
-        usePolling: true,
+        usePolling: true, // useful on some OS for file watch reliability
       },
+      port: 3000,        // dev server port
+      strictPort: true,  // fail if port is taken
+      host: true,        // listen on all interfaces (0.0.0.0)
     },
     build: {
-      outDir: path.resolve(__dirname, 'server', 'public'), // Build into server/public
+      outDir: path.resolve(__dirname, 'server', 'public'), // build output
       emptyOutDir: true,
       rollupOptions: {
         output: {

@@ -1,7 +1,12 @@
 import path from "path";
+import { fileURLToPath } from "url";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+
+// Fix __dirname for ES module scope
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // DEBUG: Log the resolved client root folder
 const clientRoot = path.resolve(__dirname, "../client");
@@ -68,7 +73,7 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
+      // reusePort: true, // Removed because not supported on Windows
     },
     () => {
       log(`serving on port ${port}`);

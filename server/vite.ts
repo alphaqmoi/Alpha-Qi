@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import express, { type Express } from "express";
 import fs from "fs";
 import { createServer as createViteServer, createLogger } from "vite";
+import react from "@vitejs/plugin-react"; // ✅ include React support
 import { type Server } from "http";
 import { nanoid } from "nanoid";
 
@@ -16,13 +17,13 @@ const __dirname = path.dirname(__filename);
 // Load .env variables
 dotenv.config();
 
-// IMPORTANT: Resolve client root folder correctly — relative to server folder go UP one level to project root, then into 'client'
+// Resolve client root folder
 const clientRoot = path.resolve(__dirname, "../client");
 
-// Create a vite logger
+// Create a Vite logger
 const viteLogger = createLogger();
 
-// Simple timestamped log function for debugging
+// Timestamped log function
 export function log(message: string, source = "vite.ts") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -42,11 +43,19 @@ export async function setupVite(app: Express, server: Server) {
     allowedHosts: true,
   };
 
-  // Create vite dev server instance
   const vite = await createViteServer({
+    root: clientRoot,
     configFile: false,
     server: serverOptions,
     appType: "custom",
+    plugins: [react()], // ✅ support JSX/TSX
+    resolve: {
+      alias: {
+        '@': path.resolve(clientRoot, 'src'),
+        '@shared': path.resolve(__dirname, '../shared'),
+        '@assets': path.resolve(__dirname, '../attached_assets'),
+      },
+    },
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
@@ -56,10 +65,10 @@ export async function setupVite(app: Express, server: Server) {
     },
   });
 
-  // Use vite's middleware to handle requests
+  // Use Vite middleware
   app.use(vite.middlewares);
 
-  // Handle all other requests by serving index.html (with vite transformation)
+  // Serve index.html via Vite with cache-busting
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 
@@ -69,15 +78,12 @@ export async function setupVite(app: Express, server: Server) {
 
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
 
-      // Add a cache-busting query to main.tsx import
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
       );
 
-      // Let vite transform the html (e.g. inject HMR client etc)
       const page = await vite.transformIndexHtml(url, template);
-
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
@@ -87,7 +93,6 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  // Static files to serve from vite build output, adjust if needed
   const distPath = path.resolve(__dirname, "public");
 
   if (!fs.existsSync(distPath)) {
