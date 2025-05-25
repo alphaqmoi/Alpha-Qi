@@ -27,6 +27,7 @@ import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import HistoryIcon from "@mui/icons-material/History";
 import ReactMarkdown from "react-markdown";
 import axios from "axios";
+import { useAuth } from "../hooks/useAuth";
 
 const theme = createTheme({
   palette: {
@@ -45,6 +46,13 @@ const theme = createTheme({
 });
 
 function App() {
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    login,
+    logout,
+  } = useAuth();
   const [message, setMessage] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -71,12 +79,22 @@ function App() {
       .catch((err) => setError("Failed to load models"));
   }, []);
 
+  // Add local state for login form
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+
+  // Helper to attach auth header
+  const authHeaders = user?.token
+    ? { Authorization: `Bearer ${user.token}` }
+    : {};
+
   const handleModelChange = async (event) => {
     const newModel = event.target.value;
     try {
       const response = await fetch("/change_model", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ model_name: newModel }),
       });
       if (response.ok) {
@@ -166,7 +184,7 @@ function App() {
       try {
         const response = await fetch("/ask_stream", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify({ message, history: chatHistory }),
         });
         if (!response.body) throw new Error("No response body");
@@ -202,9 +220,7 @@ function App() {
       try {
         const response = await fetch("/ask", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify({
             message,
             history: chatHistory,
@@ -233,7 +249,11 @@ function App() {
     setSummarizeError(null);
     setSummary("");
     try {
-      const res = await axios.post("/summarize", { text: summarizeText });
+      const res = await axios.post(
+        "/summarize",
+        { text: summarizeText },
+        { headers: { ...authHeaders } }
+      );
       setSummary(res.data.summary);
     } catch (err) {
       setSummarizeError(err.response?.data?.error || err.message);
@@ -241,6 +261,72 @@ function App() {
       setSummarizeLoading(false);
     }
   };
+
+  // Show login form if not authenticated
+  if (!user) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Container
+          maxWidth="xs"
+          sx={{
+            height: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Paper elevation={3} sx={{ p: 4, width: "100%" }}>
+            <Typography variant="h5" gutterBottom>
+              Login
+            </Typography>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setLoginSubmitting(true);
+                await login(loginEmail, loginPassword);
+                setLoginSubmitting(false);
+              }}
+            >
+              <TextField
+                label="Email"
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                fullWidth
+                margin="normal"
+                required
+              />
+              <TextField
+                label="Password"
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                fullWidth
+                margin="normal"
+                required
+              />
+              {authError && (
+                <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+                  {authError}
+                </Typography>
+              )}
+              <Button
+                type="submit"
+                variant="contained"
+                color="primary"
+                fullWidth
+                disabled={authLoading || loginSubmitting}
+                sx={{ mt: 2 }}
+              >
+                {authLoading || loginSubmitting ? "Logging in..." : "Login"}
+              </Button>
+            </form>
+          </Paper>
+        </Container>
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider theme={theme}>
