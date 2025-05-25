@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 // Resolve client root folder
-const clientRoot = path.resolve(__dirname, "../client");
+const clientRoot = path.resolve(__dirname, "../frontend");
 
 // Create a Vite logger
 const viteLogger = createLogger();
@@ -40,7 +40,6 @@ export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
-    allowedHosts: true,
   };
 
   const vite = await createViteServer({

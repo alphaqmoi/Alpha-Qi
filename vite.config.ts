@@ -7,14 +7,14 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
 
   return {
-    root: path.resolve(__dirname, 'client'), // Vite root is the client folder
+    root: path.resolve(__dirname, 'frontend'), // Vite root is now the frontend folder
     plugins: [
       react(),
       runtimeErrorOverlay(),
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, 'client', 'src'),
+        '@': path.resolve(__dirname, 'frontend', 'src'),
         '@shared': path.resolve(__dirname, 'shared'),
         '@assets': path.resolve(__dirname, 'attached_assets'),
       },
