@@ -16,13 +16,13 @@ A modern web interface for the DevGenius AI-powered development assistant with v
 ## Prerequisites
 
 - Node.js 18.x or later
-- npm 9.x or later
+- Yarn 1.x or 3.x (recommended)
 
 ## Getting Started
 
 1. Install dependencies:
 ```bash
-npm install
+yarn install
 ```
 
 2. Create a `.env.local` file in the root directory with the following variables:
@@ -32,7 +32,7 @@ NEXT_PUBLIC_API_URL=http://localhost:5000
 
 3. Start the development server:
 ```bash
-npm run dev
+yarn dev
 ```
 
 4. Open [http://localhost:3000](http://localhost:3000) in your browser.
@@ -59,10 +59,10 @@ frontend/
 
 ## Development
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
+- `yarn dev` - Start development server
+- `yarn build` - Build for production
+- `yarn start` - Start production server
+- `yarn lint` - Run ESLint
 
 ## Dependencies
 

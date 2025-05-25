@@ -52,6 +52,7 @@ function App() {
     error: authError,
     login,
     logout,
+    register,
   } = useAuth();
   const [message, setMessage] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
@@ -83,6 +84,14 @@ function App() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginSubmitting, setLoginSubmitting] = useState(false);
+
+  // Add local state for registration form
+  const [showRegister, setShowRegister] = useState(false);
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [registerName, setRegisterName] = useState("");
+  const [registerSubmitting, setRegisterSubmitting] = useState(false);
+  const [registerError, setRegisterError] = useState(null);
 
   // Helper to attach auth header
   const authHeaders = user?.token
@@ -262,6 +271,21 @@ function App() {
     }
   };
 
+  // Registration handler
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setRegisterSubmitting(true);
+    setRegisterError(null);
+    try {
+      await register(registerEmail, registerPassword, registerName);
+      setShowRegister(false); // Go to login after successful registration
+    } catch (err) {
+      setRegisterError(err?.message || "Registration failed");
+    } finally {
+      setRegisterSubmitting(false);
+    }
+  };
+
   // Show login form if not authenticated
   if (!user) {
     return (
@@ -278,50 +302,112 @@ function App() {
         >
           <Paper elevation={3} sx={{ p: 4, width: "100%" }}>
             <Typography variant="h5" gutterBottom>
-              Login
+              {showRegister ? "Register" : "Login"}
             </Typography>
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setLoginSubmitting(true);
-                await login(loginEmail, loginPassword);
-                setLoginSubmitting(false);
-              }}
-            >
-              <TextField
-                label="Email"
-                type="email"
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                fullWidth
-                margin="normal"
-                required
-              />
-              <TextField
-                label="Password"
-                type="password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                fullWidth
-                margin="normal"
-                required
-              />
-              {authError && (
-                <Typography color="error" variant="body2" sx={{ mt: 1 }}>
-                  {authError}
-                </Typography>
-              )}
-              <Button
-                type="submit"
-                variant="contained"
-                color="primary"
-                fullWidth
-                disabled={authLoading || loginSubmitting}
-                sx={{ mt: 2 }}
+            {showRegister ? (
+              <form onSubmit={handleRegister}>
+                <TextField
+                  label="Name"
+                  value={registerName}
+                  onChange={(e) => setRegisterName(e.target.value)}
+                  fullWidth
+                  margin="normal"
+                  required
+                />
+                <TextField
+                  label="Email"
+                  type="email"
+                  value={registerEmail}
+                  onChange={(e) => setRegisterEmail(e.target.value)}
+                  fullWidth
+                  margin="normal"
+                  required
+                />
+                <TextField
+                  label="Password"
+                  type="password"
+                  value={registerPassword}
+                  onChange={(e) => setRegisterPassword(e.target.value)}
+                  fullWidth
+                  margin="normal"
+                  required
+                />
+                {registerError && (
+                  <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+                    {registerError}
+                  </Typography>
+                )}
+                <Button
+                  type="submit"
+                  variant="contained"
+                  color="primary"
+                  fullWidth
+                  disabled={registerSubmitting}
+                  sx={{ mt: 2 }}
+                >
+                  {registerSubmitting ? "Registering..." : "Register"}
+                </Button>
+                <Button
+                  onClick={() => setShowRegister(false)}
+                  color="secondary"
+                  fullWidth
+                  sx={{ mt: 1 }}
+                >
+                  Back to Login
+                </Button>
+              </form>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setLoginSubmitting(true);
+                  await login(loginEmail, loginPassword);
+                  setLoginSubmitting(false);
+                }}
               >
-                {authLoading || loginSubmitting ? "Logging in..." : "Login"}
-              </Button>
-            </form>
+                <TextField
+                  label="Email"
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  fullWidth
+                  margin="normal"
+                  required
+                />
+                <TextField
+                  label="Password"
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  fullWidth
+                  margin="normal"
+                  required
+                />
+                {authError && (
+                  <Typography color="error" variant="body2" sx={{ mt: 1 }}>
+                    {authError}
+                  </Typography>
+                )}
+                <Button
+                  type="submit"
+                  variant="contained"
+                  color="primary"
+                  fullWidth
+                  disabled={authLoading || loginSubmitting}
+                  sx={{ mt: 2 }}
+                >
+                  {authLoading || loginSubmitting ? "Logging in..." : "Login"}
+                </Button>
+                <Button
+                  onClick={() => setShowRegister(true)}
+                  color="secondary"
+                  fullWidth
+                  sx={{ mt: 1 }}
+                >
+                  Register
+                </Button>
+              </form>
+            )}
           </Paper>
         </Container>
       </ThemeProvider>
