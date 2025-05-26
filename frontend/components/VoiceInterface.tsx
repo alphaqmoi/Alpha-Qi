@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import { Mic, MicOff, Play, Pause, Stop, Volume2, VolumeX } from "lucide-react";
+import { Mic, MicOff, Play, Pause, Square, Volume2, VolumeX } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useVoice } from "@/hooks/useVoice";
 import { useModels } from "@/hooks/useModels";
@@ -358,7 +358,7 @@ export function VoiceInterface({
               >
                 {isRecording ? (
                   <>
-                    <Stop className="mr-2 h-4 w-4" />
+                    <Square className="mr-2 h-4 w-4" />
                     Stop
                   </>
                 ) : (
