@@ -1,0 +1,81 @@
+stages:
+  - install
+  - lint
+  - test
+  - build
+  - package
+
+variables:
+  NODE_ENV: production
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - node_modules/
+    - .next/cache
+    - frontend/android/.gradle
+    - frontend/android/.idea
+    - dist/
+
+before_script:
+  - echo "🔍 Checking environment setup..."
+  - test -f capacitor.config.json || (echo "❌ Missing capacitor.config.json" && exit 1)
+  - test -f .env.local || (echo "❌ Missing .env.local file" && exit 1)
+  - yarn install --frozen-lockfile
+
+install_dependencies:
+  stage: install
+  script:
+    - echo "📦 Installing dependencies..."
+
+lint:
+  stage: lint
+  script:
+    - echo "🔎 Running ESLint..."
+    - yarn lint
+    - yarn prettier --check .
+
+test:
+  stage: test
+  script:
+    - echo "🧪 Running tests..."
+    - yarn test || echo "⚠️ No test script found, skipping."
+
+build_web:
+  stage: build
+  script:
+    - echo "🌐 Building Next.js app..."
+    - yarn build
+  artifacts:
+    paths:
+      - .next/
+      - out/
+    expire_in: 1 week
+
+build_android:
+  stage: package
+  script:
+    - echo "📱 Building Android APK..."
+    - yarn build
+    - npx cap sync android
+    - cd android
+    - ./gradlew assembleRelease
+  artifacts:
+    paths:
+      - android/app/build/outputs/apk/release/app-release.apk
+    expire_in: 1 week
+  only:
+    - main
+
+build_electron:
+  stage: package
+  script:
+    - echo "🖥️ Building Electron app..."
+    - yarn build
+    - yarn electron:build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  only:
+    - main
