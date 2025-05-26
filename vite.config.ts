@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
 
   return {
-    root: path.resolve(__dirname, 'frontend'), // Vite root is now the frontend folder
+    root: path.resolve(__dirname, 'frontend'), // frontend folder as root
     plugins: [
       react(),
       runtimeErrorOverlay(),
@@ -21,14 +21,14 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       watch: {
-        usePolling: true, // useful on some OS for file watch reliability
+        usePolling: true,
       },
-      port: 3000,        // dev server port
-      strictPort: true,  // fail if port is taken
-      host: true,        // listen on all interfaces (0.0.0.0)
+      port: 3000,
+      strictPort: true,
+      host: true,
     },
     build: {
-      outDir: path.resolve(__dirname, 'server', 'public'), // build output
+      outDir: path.resolve(__dirname, 'server', 'public'),
       emptyOutDir: true,
       rollupOptions: {
         output: {
