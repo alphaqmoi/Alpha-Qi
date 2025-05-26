@@ -1,0 +1,6 @@
+{
+  "appId": "com.alpha.qi",
+  "appName": "AlphaQi",
+  "webDir": "out",
+  "bundledWebRuntime": false
+}
