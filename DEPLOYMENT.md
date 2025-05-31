@@ -12,12 +12,14 @@ This guide covers different deployment options for the AI Chat Application.
 ## Local Development
 
 1. Clone the repository:
+
    ```bash
    git clone <repository-url>
    cd <repository-name>
    ```
 
 2. Create a `.env` file in the root directory:
+
    ```
    HUGGINGFACE_TOKEN=your_token_here
    MODEL_NAME=gpt2
@@ -26,6 +28,7 @@ This guide covers different deployment options for the AI Chat Application.
    ```
 
 3. Start the application using Docker Compose:
+
    ```bash
    docker-compose up --build
    ```
@@ -39,6 +42,7 @@ This guide covers different deployment options for the AI Chat Application.
 ### Option 1: Docker Deployment
 
 1. Build and run using Docker Compose:
+
    ```bash
    docker-compose -f docker-compose.prod.yml up --build -d
    ```
@@ -53,16 +57,19 @@ This guide covers different deployment options for the AI Chat Application.
 #### AWS Elastic Beanstalk
 
 1. Install the EB CLI:
+
    ```bash
    pip install awsebcli
    ```
 
 2. Initialize EB application:
+
    ```bash
    eb init
    ```
 
 3. Create environment:
+
    ```bash
    eb create production
    ```
@@ -75,6 +82,7 @@ This guide covers different deployment options for the AI Chat Application.
 #### Heroku
 
 1. Install Heroku CLI:
+
    ```bash
    # For Windows (using scoop)
    scoop install heroku
@@ -83,16 +91,19 @@ This guide covers different deployment options for the AI Chat Application.
    ```
 
 2. Login to Heroku:
+
    ```bash
    heroku login
    ```
 
 3. Create Heroku app:
+
    ```bash
    heroku create your-app-name
    ```
 
 4. Set environment variables:
+
    ```bash
    heroku config:set HUGGINGFACE_TOKEN=your_token_here
    heroku config:set MODEL_NAME=gpt2
@@ -108,6 +119,7 @@ This guide covers different deployment options for the AI Chat Application.
 ### Logs
 
 - Docker logs:
+
   ```bash
   docker-compose logs -f
   ```
@@ -120,6 +132,7 @@ This guide covers different deployment options for the AI Chat Application.
 ### Backup
 
 1. Backup conversation history:
+
    ```bash
    tar -czf conversation_history_backup.tar.gz conversation_history/
    ```
@@ -132,6 +145,7 @@ This guide covers different deployment options for the AI Chat Application.
 ### Scaling
 
 1. Increase workers:
+
    ```bash
    # Edit docker-compose.yml
    command: gunicorn --workers 8 --bind 0.0.0.0:5000 main:app
@@ -157,16 +171,19 @@ This guide covers different deployment options for the AI Chat Application.
 ## Troubleshooting
 
 1. Check container status:
+
    ```bash
    docker-compose ps
    ```
 
 2. View container logs:
+
    ```bash
    docker-compose logs <service-name>
    ```
 
 3. Restart services:
+
    ```bash
    docker-compose restart
    ```
@@ -179,6 +196,7 @@ This guide covers different deployment options for the AI Chat Application.
 ## Support
 
 For issues and support:
+
 1. Check the logs
 2. Review the documentation
 3. Create an issue in the repository

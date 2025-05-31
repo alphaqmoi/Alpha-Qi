@@ -1,243 +1,148 @@
-"""Tests for database models."""
-
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+"""Tests for database models with audit, soft deletes, and rollback support."""
 
 import pytest
+from datetime import datetime, timedelta
+from sqlalchemy.exc import IntegrityError
+from app.models import User, Model, ModelVersion, db
 
-from app.extensions import bcrypt
-from app.models import Model, ModelVersion, User, db
+# Import model factories
+from tests.factories import UserFactory, ModelFactory, ModelVersionFactory
 
 
 class TestUserModel:
-    """Test suite for User model."""
-
-    def test_user_creation(self, test_db):
-        """Test user creation with valid data."""
-        user = User(
-            username="testuser",
-            email="test@example.com",
-            password="testpass123",
-            is_active=True,
-        )
-        test_db.session.add(user)
-        test_db.session.commit()
-
+    def test_create_user_valid(self, test_db):
+        user = UserFactory()
         assert user.id is not None
-        assert user.username == "testuser"
-        assert user.email == "test@example.com"
-        assert user.is_active is True
-        assert user.created_at is not None
-        assert user.updated_at is not None
+        assert user.username
+        assert user.email
+        assert user.created_at and user.updated_at
 
-    def test_password_hashing(self, test_db):
-        """Test password hashing and verification."""
-        user = User(
-            username="testuser", email="test@example.com", password="testpass123"
-        )
-        test_db.session.add(user)
-        test_db.session.commit()
+    def test_password_hashing_and_check(self, test_db):
+        user = UserFactory(password="secret123")
+        assert user.password != "secret123"
+        assert user.check_password("secret123")
+        assert not user.check_password("wrongpass")
 
-        assert user.password != "testpass123"
-        assert user.check_password("testpass123") is True
-        assert user.check_password("wrongpass") is False
+    def test_audit_timestamps(self, test_db):
+        user = UserFactory()
+        original_updated = user.updated_at
+        user.email = "new@example.com"
+        db.session.commit()
+        assert user.updated_at > original_updated
 
-    def test_user_update(self, test_db, sample_user):
-        """Test user data update."""
-        sample_user.email = "updated@example.com"
-        sample_user.is_active = False
-        test_db.session.commit()
+    def test_soft_delete_user(self, test_db):
+        user = UserFactory()
+        user.soft_delete()
+        db.session.commit()
+        assert user.deleted_at is not None
+        # Custom method to query only active users
+        assert User.query_active().get(user.id) is None
 
-        updated_user = User.query.get(sample_user.id)
-        assert updated_user.email == "updated@example.com"
-        assert updated_user.is_active is False
-        assert updated_user.updated_at > sample_user.created_at
+    def test_restore_soft_deleted_user(self, test_db):
+        user = UserFactory()
+        user.soft_delete()
+        db.session.commit()
+        user.restore()
+        db.session.commit()
+        assert user.deleted_at is None
+        assert User.query_active().get(user.id) == user
 
-    def test_user_deletion(self, test_db, sample_user):
-        """Test user deletion."""
-        user_id = sample_user.id
-        test_db.session.delete(sample_user)
-        test_db.session.commit()
+    def test_cascading_delete_user_models(self, test_db):
+        user = UserFactory()
+        models = ModelFactory.create_batch(3, user=user)
+        db.session.delete(user)
+        db.session.commit()
+        for model in models:
+            assert Model.query.get(model.id) is None
 
-        assert User.query.get(user_id) is None
-
-    def test_user_relationships(self, test_db, sample_user):
-        """Test user relationships with models."""
-        # Create models for the user
-        models = [
-            Model(
-                name=f"test-model-{i}",
-                description=f"Test model {i}",
-                user_id=sample_user.id,
-                parameters={"size": "small"},
-            )
-            for i in range(3)
-        ]
-        test_db.session.add_all(models)
-        test_db.session.commit()
-
-        assert len(sample_user.models) == 3
-        assert all(model.user_id == sample_user.id for model in sample_user.models)
-
-    def test_user_validation(self, test_db):
-        """Test user data validation."""
-        # Test invalid email
+    def test_invalid_email_raises(self, test_db):
         with pytest.raises(ValueError):
-            User(username="testuser", email="invalid-email", password="testpass123")
+            UserFactory(email="invalid-email")
 
-        # Test duplicate username
-        user1 = User(
-            username="duplicate", email="test1@example.com", password="testpass123"
-        )
-        test_db.session.add(user1)
-        test_db.session.commit()
+    def test_duplicate_username_raises(self, test_db):
+        username = "duplicate"
+        UserFactory(username=username)
+        with pytest.raises(IntegrityError):
+            UserFactory(username=username)
+            db.session.flush()
 
-        with pytest.raises(ValueError):
-            User(
-                username="duplicate", email="test2@example.com", password="testpass123"
-            )
+    def test_transaction_rollback_on_error(self, test_db):
+        user = UserFactory()
+        user.username = None  # violates NOT NULL constraint
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+        assert User.query.get(user.id) is not None
 
 
 class TestModelModel:
-    """Test suite for Model model."""
+    def test_model_creation(self, test_db):
+        model = ModelFactory()
+        assert model.name
+        assert model.user
+        assert isinstance(model.parameters, dict)
 
-    def test_model_creation(self, test_db, sample_user):
-        """Test model creation with valid data."""
-        model = Model(
-            name="test-model",
-            description="Test model description",
-            user_id=sample_user.id,
-            parameters={"architecture": "transformer", "size": "small"},
-        )
-        test_db.session.add(model)
-        test_db.session.commit()
-
-        assert model.id is not None
-        assert model.name == "test-model"
-        assert model.description == "Test model description"
-        assert model.user_id == sample_user.id
-        assert model.parameters["architecture"] == "transformer"
-        assert model.created_at is not None
-        assert model.updated_at is not None
-
-    def test_model_update(self, test_db, sample_model):
-        """Test model data update."""
-        sample_model.description = "Updated description"
-        sample_model.parameters["size"] = "medium"
-        test_db.session.commit()
-
-        updated_model = Model.query.get(sample_model.id)
-        assert updated_model.description == "Updated description"
-        assert updated_model.parameters["size"] == "medium"
-        assert updated_model.updated_at > sample_model.created_at
-
-    def test_model_deletion(self, test_db, sample_model):
-        """Test model deletion."""
-        model_id = sample_model.id
-        test_db.session.delete(sample_model)
-        test_db.session.commit()
-
-        assert Model.query.get(model_id) is None
-
-    def test_model_relationships(self, test_db, sample_model):
-        """Test model relationships with versions."""
-        # Create versions for the model
-        versions = [
-            ModelVersion(
-                model_id=sample_model.id,
-                version=f"1.0.{i}",
-                file_path=f"models/test-model-v1.0.{i}.pt",
-                metrics={"accuracy": 0.9 + i * 0.01},
-            )
-            for i in range(3)
-        ]
-        test_db.session.add_all(versions)
-        test_db.session.commit()
-
-        assert len(sample_model.versions) == 3
-        assert all(
-            version.model_id == sample_model.id for version in sample_model.versions
-        )
-
-    def test_model_validation(self, test_db, sample_user):
-        """Test model data validation."""
-        # Test duplicate model name for same user
-        model1 = Model(
-            name="duplicate",
-            description="Test model 1",
-            user_id=sample_user.id,
-            parameters={"size": "small"},
-        )
-        test_db.session.add(model1)
-        test_db.session.commit()
-
+    def test_model_invalid_json_parameters(self, test_db):
         with pytest.raises(ValueError):
-            Model(
-                name="duplicate",
-                description="Test model 2",
-                user_id=sample_user.id,
-                parameters={"size": "small"},
-            )
+            ModelFactory(parameters="not-a-json")
+
+    def test_model_long_string(self, test_db):
+        model = ModelFactory(name="m" * 256)
+        assert len(model.name) == 256
+
+    def test_model_update_audit(self, test_db):
+        model = ModelFactory()
+        model.description = "Updated description"
+        db.session.commit()
+        assert model.updated_at > model.created_at
+
+    def test_soft_delete_model(self, test_db):
+        model = ModelFactory()
+        model.soft_delete()
+        db.session.commit()
+        assert model.deleted_at is not None
+
+    def test_cascading_delete_model_versions(self, test_db):
+        model = ModelFactory()
+        versions = ModelVersionFactory.create_batch(2, model=model)
+        db.session.delete(model)
+        db.session.commit()
+        for version in versions:
+            assert ModelVersion.query.get(version.id) is None
 
 
 class TestModelVersionModel:
-    """Test suite for ModelVersion model."""
+    def test_version_creation(self, test_db):
+        version = ModelVersionFactory()
+        assert version.version
+        assert version.model
+        assert "accuracy" in version.metrics
 
-    def test_version_creation(self, test_db, sample_model):
-        """Test version creation with valid data."""
-        version = ModelVersion(
-            model_id=sample_model.id,
-            version="1.0.0",
-            file_path="models/test-model-v1.0.0.pt",
-            metrics={"accuracy": 0.95, "latency": 0.1},
-        )
-        test_db.session.add(version)
-        test_db.session.commit()
+    def test_duplicate_version_raises(self, test_db):
+        version = ModelVersionFactory(version="1.0.0")
+        with pytest.raises(IntegrityError):
+            ModelVersionFactory(model=version.model, version="1.0.0")
+            db.session.flush()
 
-        assert version.id is not None
-        assert version.model_id == sample_model.id
-        assert version.version == "1.0.0"
-        assert version.file_path == "models/test-model-v1.0.0.pt"
-        assert version.metrics["accuracy"] == 0.95
-        assert version.created_at is not None
+    def test_soft_delete_version(self, test_db):
+        version = ModelVersionFactory()
+        version.soft_delete()
+        db.session.commit()
+        assert version.deleted_at is not None
 
-    def test_version_update(self, test_db, sample_model_version):
-        """Test version data update."""
-        sample_model_version.metrics["accuracy"] = 0.96
-        test_db.session.commit()
+    def test_restore_deleted_version(self, test_db):
+        version = ModelVersionFactory()
+        version.soft_delete()
+        db.session.commit()
+        version.restore()
+        db.session.commit()
+        assert version.deleted_at is None
 
-        updated_version = ModelVersion.query.get(sample_model_version.id)
-        assert updated_version.metrics["accuracy"] == 0.96
-
-    def test_version_deletion(self, test_db, sample_model_version):
-        """Test version deletion."""
-        version_id = sample_model_version.id
-        test_db.session.delete(sample_model_version)
-        test_db.session.commit()
-
-        assert ModelVersion.query.get(version_id) is None
-
-    def test_version_validation(self, test_db, sample_model):
-        """Test version data validation."""
-        # Test duplicate version for same model
-        version1 = ModelVersion(
-            model_id=sample_model.id,
-            version="1.0.0",
-            file_path="models/test-model-v1.0.0.pt",
-            metrics={"accuracy": 0.95},
-        )
-        test_db.session.add(version1)
-        test_db.session.commit()
-
-        with pytest.raises(ValueError):
-            ModelVersion(
-                model_id=sample_model.id,
-                version="1.0.0",
-                file_path="models/test-model-v1.0.0-new.pt",
-                metrics={"accuracy": 0.96},
-            )
-
-    def test_version_relationships(self, test_db, sample_model_version):
-        """Test version relationships."""
-        assert sample_model_version.model is not None
-        assert sample_model_version.model.id == sample_model_version.model_id
+    def test_metrics_update_and_rollback(self, test_db):
+        version = ModelVersionFactory()
+        version.metrics["accuracy"] = "not-a-number"  # violates expected format
+        with pytest.raises(Exception):
+            db.session.commit()
+        db.session.rollback()
+        reloaded = ModelVersion.query.get(version.id)
+        assert isinstance(reloaded.metrics["accuracy"], float)

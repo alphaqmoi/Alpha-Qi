@@ -1,0 +1,48 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🔍 Running root pre-commit checks..."
+
+# Run in Bash first
+bash -c '
+  echo "🧼 [Bash] Detecting staged files..."
+  STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMRT | grep -E "\.(ts|tsx|js|jsx|json|css|scss|md)$")
+
+  if [ -z "$STAGED_FILES" ]; then
+    echo "✅ No matching files to lint/format."
+    exit 0
+  fi
+
+  echo "🧹 [Bash] Running lint-staged on changed files..."
+  npx lint-staged
+' || {
+  # If Bash fails, fallback to PowerShell (Windows)
+  if [ "$OS" = "Windows_NT" ]; then
+    echo "⚠️ Bash failed, attempting PowerShell fallback..."
+
+    pwsh -Command '
+      Write-Host "🧼 [PowerShell] Detecting staged files..."
+      $staged = git diff --cached --name-only --diff-filter=ACMRT | Where-Object { $_ -match "\.(ts|tsx|js|jsx|json|css|scss|md)$" }
+
+      if (-not $staged) {
+        Write-Host "✅ No matching files to lint/format."
+        exit 0
+      }
+
+      Write-Host "🧹 [PowerShell] Running lint-staged on changed files..."
+      npx lint-staged
+      if ($LASTEXITCODE -ne 0) {
+        Write-Error "❌ Commit aborted due to linting errors."
+        exit 1
+      }
+    ' || {
+      echo "❌ Commit aborted: All checks failed."
+      exit 1
+    }
+  else
+    echo "❌ Commit aborted: Bash checks failed and PowerShell fallback unavailable."
+    exit 1
+  fi
+}
+
+echo "✅ All root pre-commit checks passed."

@@ -1,274 +1,198 @@
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import redis
-from flask import current_app
+from flask import current_app, Flask
 
 logger = logging.getLogger(__name__)
 
 
 class HistoryManager:
-    def __init__(self, app=None):
+    def __init__(self, app: Optional[Flask] = None):
         self.app = app
-        self.redis_client = None
-        self.history_ttl = 86400  # 24 hours in seconds
+        self.redis_client: Optional[redis.Redis] = None
+        self.history_ttl: int = 86400  # 24 hours
+
         if app is not None:
             self.init_app(app)
 
-    def init_app(self, app):
-        """Initialize history manager with app configuration"""
+    def init_app(self, app: Flask) -> None:
+        """Initialize the history manager using the app config."""
         self.app = app
         self.history_ttl = app.config.get("CHAT_HISTORY_TTL", self.history_ttl)
 
-        # Initialize Redis client
         redis_url = app.config.get("REDIS_URL", "redis://localhost:6379/0")
-        self.redis_client = redis.from_url(redis_url)
-
-        # Test connection
         try:
+            self.redis_client = redis.from_url(redis_url)
             self.redis_client.ping()
-            logger.info("Redis connection established")
-        except redis.ConnectionError as e:
-            logger.error(f"Failed to connect to Redis: {str(e)}")
+            logger.info("Connected to Redis successfully.")
+        except redis.RedisError as e:
+            logger.critical(f"Failed to initialize Redis: {e}")
             raise
 
-    def store_message(self, session_id: str, message: Dict, response: Dict) -> bool:
-        """Store a message and its response in history"""
-        try:
-            if not session_id:
-                raise ValueError("Session ID is required")
+    def store_message(self, session_id: str, message: Dict[str, Any], response: Dict[str, Any]) -> bool:
+        """Store a message/response pair in Redis history."""
+        if not session_id:
+            logger.warning("Missing session_id for store_message")
+            return False
 
-            history_key = f"chat_history:{session_id}"
-            message_data = {
+        try:
+            key = f"chat_history:{session_id}"
+            payload = {
                 "message": message,
                 "response": response,
                 "timestamp": datetime.utcnow().isoformat(),
             }
 
-            # Add to Redis list
-            self.redis_client.rpush(history_key, json.dumps(message_data))
+            self.redis_client.rpush(key, json.dumps(payload))
+            self.redis_client.expire(key, self.history_ttl)
 
-            # Set expiry
-            self.redis_client.expire(history_key, self.history_ttl)
-
-            logger.debug(f"Message stored for session {session_id}")
+            logger.debug(f"Stored message in session {session_id}")
             return True
-        except Exception as e:
-            logger.error(f"Error storing message: {str(e)}")
+        except redis.RedisError as e:
+            logger.error(f"Redis error while storing message: {e}")
             return False
 
-    def get_history(
-        self, session_id: str, limit: int = 100, offset: int = 0
-    ) -> List[Dict]:
-        """Get message history for a session"""
+    def get_history(self, session_id: str, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Retrieve chat history with optional pagination."""
+        if not session_id:
+            return []
+
         try:
-            if not session_id:
-                raise ValueError("Session ID is required")
+            key = f"chat_history:{session_id}"
+            total = self.redis_client.llen(key)
 
-            history_key = f"chat_history:{session_id}"
-
-            # Get total length
-            total_length = self.redis_client.llen(history_key)
-
-            # Calculate start and end indices
-            start = max(0, total_length - offset - limit)
-            end = max(0, total_length - offset - 1)
+            start = max(0, total - offset - limit)
+            end = max(0, total - offset - 1)
 
             if start > end:
                 return []
 
-            # Get messages
-            messages = self.redis_client.lrange(history_key, start, end)
-
-            # Parse messages
-            history = [json.loads(msg) for msg in messages]
-
-            # Reverse to get chronological order
+            raw_messages = self.redis_client.lrange(key, start, end)
+            history = [json.loads(msg) for msg in raw_messages]
             history.reverse()
 
-            logger.debug(f"Retrieved {len(history)} messages for session {session_id}")
             return history
-        except Exception as e:
-            logger.error(f"Error getting history: {str(e)}")
+        except redis.RedisError as e:
+            logger.error(f"Redis error getting history for {session_id}: {e}")
             return []
 
     def clear_history(self, session_id: str) -> bool:
-        """Clear message history for a session"""
+        """Delete all messages for a session."""
         try:
-            if not session_id:
-                raise ValueError("Session ID is required")
-
-            history_key = f"chat_history:{session_id}"
-
-            # Delete key
-            self.redis_client.delete(history_key)
-
-            logger.debug(f"History cleared for session {session_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error clearing history: {str(e)}")
+            return self.redis_client.delete(f"chat_history:{session_id}") > 0
+        except redis.RedisError as e:
+            logger.error(f"Error clearing history for {session_id}: {e}")
             return False
 
     def get_active_sessions(self) -> List[str]:
-        """Get list of active sessions with history"""
+        """Return all session IDs currently stored."""
         try:
-            # Get all history keys
             keys = self.redis_client.keys("chat_history:*")
-
-            # Extract session IDs
-            sessions = [key.decode("utf-8").split(":")[1] for key in keys]
-
-            logger.debug(f"Found {len(sessions)} active sessions")
-            return sessions
-        except Exception as e:
-            logger.error(f"Error getting active sessions: {str(e)}")
+            return [key.decode().split(":")[1] for key in keys]
+        except redis.RedisError as e:
+            logger.error(f"Error fetching active sessions: {e}")
             return []
 
     def cleanup_expired_sessions(self) -> int:
-        """Clean up expired sessions"""
+        """Remove sessions whose TTL has expired (i.e. no TTL)."""
+        expired = 0
         try:
-            # Get all history keys
             keys = self.redis_client.keys("chat_history:*")
-
-            # Check each key
-            expired_count = 0
             for key in keys:
-                if not self.redis_client.ttl(key):
+                if self.redis_client.ttl(key) == -1:
                     self.redis_client.delete(key)
-                    expired_count += 1
+                    expired += 1
+            logger.info(f"Cleaned {expired} expired sessions.")
+        except redis.RedisError as e:
+            logger.error(f"Error during cleanup: {e}")
+        return expired
 
-            logger.info(f"Cleaned up {expired_count} expired sessions")
-            return expired_count
-        except Exception as e:
-            logger.error(f"Error cleaning up expired sessions: {str(e)}")
-            return 0
-
-    def search_history(self, session_id: str, query: str) -> List[Dict]:
-        """Search message history for a session"""
+    def search_history(self, session_id: str, query: str) -> List[Dict[str, Any]]:
+        """Search for a query string in user messages, responses, or context."""
+        results = []
         try:
-            if not session_id:
-                raise ValueError("Session ID is required")
-
-            if not query:
+            if not session_id or not query:
                 return self.get_history(session_id)
 
-            # Get all messages
+            query = query.lower()
             history = self.get_history(session_id, limit=1000)
 
-            # Search in messages and responses
-            results = []
-            query = query.lower()
-
             for entry in history:
-                message = entry.get("message", {})
-                response = entry.get("response", {})
+                msg = entry.get("message", {})
+                res = entry.get("response", {})
+                ctx = msg.get("context", {})
 
-                # Check message content
-                if query in message.get("content", "").lower():
+                if (
+                    query in msg.get("content", "").lower() or
+                    query in res.get("content", "").lower() or
+                    any(query in str(v).lower() for v in ctx.values())
+                ):
                     results.append(entry)
-                    continue
 
-                # Check response content
-                if query in response.get("content", "").lower():
-                    results.append(entry)
-                    continue
-
-                # Check context
-                context = message.get("context", {})
-                if any(query in str(v).lower() for v in context.values()):
-                    results.append(entry)
-                    continue
-
-            logger.debug(
-                f"Found {len(results)} matches for query '{query}' in session {session_id}"
-            )
-            return results
+            logger.debug(f"Search found {len(results)} results in session {session_id}")
         except Exception as e:
-            logger.error(f"Error searching history: {str(e)}")
-            return []
+            logger.error(f"Search error: {e}")
+        return results
 
     def export_history(self, session_id: str, format: str = "json") -> Optional[str]:
-        """Export message history for a session"""
+        """Export session history in JSON or human-readable text format."""
         try:
-            if not session_id:
-                raise ValueError("Session ID is required")
-
-            # Get history
             history = self.get_history(session_id)
-
             if format == "json":
                 return json.dumps(history, indent=2)
             elif format == "text":
-                # Convert to readable text format
-                text = []
+                lines = []
                 for entry in history:
-                    message = entry.get("message", {})
-                    response = entry.get("response", {})
-                    timestamp = entry.get("timestamp")
-
-                    text.append(f"[{timestamp}]")
-                    text.append(f"User: {message.get('content', '')}")
-                    text.append(f"AI: {response.get('content', '')}")
-                    text.append("---")
-
-                return "\n".join(text)
+                    lines.append(f"[{entry.get('timestamp')}]")
+                    lines.append(f"User: {entry['message'].get('content', '')}")
+                    lines.append(f"AI: {entry['response'].get('content', '')}")
+                    lines.append("---")
+                return "\n".join(lines)
             else:
-                raise ValueError(f"Unsupported export format: {format}")
+                raise ValueError(f"Unsupported format: {format}")
         except Exception as e:
-            logger.error(f"Error exporting history: {str(e)}")
+            logger.error(f"Export failed for {session_id}: {e}")
             return None
 
     def import_history(self, session_id: str, data: str, format: str = "json") -> bool:
-        """Import message history for a session"""
+        """Import chat history from JSON or text format."""
         try:
-            if not session_id:
-                raise ValueError("Session ID is required")
-
+            history = []
             if format == "json":
                 history = json.loads(data)
             elif format == "text":
-                # Parse text format
-                history = []
-                current_entry = None
-
-                for line in data.split("\n"):
+                lines = data.split("\n")
+                entry = {}
+                for line in lines:
                     line = line.strip()
                     if not line:
                         continue
-
                     if line.startswith("[") and line.endswith("]"):
-                        if current_entry:
-                            history.append(current_entry)
-                        current_entry = {
+                        if entry:
+                            history.append(entry)
+                        entry = {
                             "timestamp": line[1:-1],
                             "message": {"content": ""},
                             "response": {"content": ""},
                         }
                     elif line.startswith("User:"):
-                        if current_entry:
-                            current_entry["message"]["content"] = line[5:].strip()
+                        entry["message"]["content"] = line[5:].strip()
                     elif line.startswith("AI:"):
-                        if current_entry:
-                            current_entry["response"]["content"] = line[3:].strip()
-
-                if current_entry:
-                    history.append(current_entry)
+                        entry["response"]["content"] = line[3:].strip()
+                if entry:
+                    history.append(entry)
             else:
-                raise ValueError(f"Unsupported import format: {format}")
+                raise ValueError(f"Unsupported format: {format}")
 
-            # Clear existing history
             self.clear_history(session_id)
+            for item in history:
+                self.store_message(session_id, item.get("message", {}), item.get("response", {}))
 
-            # Store imported history
-            for entry in history:
-                self.store_message(
-                    session_id, entry.get("message", {}), entry.get("response", {})
-                )
-
-            logger.info(f"Imported {len(history)} messages for session {session_id}")
+            logger.info(f"Imported {len(history)} items to session {session_id}")
             return True
         except Exception as e:
-            logger.error(f"Error importing history: {str(e)}")
+            logger.error(f"Import failed for {session_id}: {e}")
             return False

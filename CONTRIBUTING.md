@@ -9,6 +9,7 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 ## Development Setup
 
 1. **Fork and Clone**
+
    ```bash
    git clone https://github.com/yourusername/alpha-q.git
    cd alpha-q
@@ -16,11 +17,13 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
    ```
 
 2. **Create a Development Branch**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
 
 3. **Set Up Development Environment**
+
    ```bash
    # Create and activate virtual environment
    python -m venv venv
@@ -37,11 +40,13 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 ## Development Workflow
 
 1. **Before Starting Work**
+
    - Update your fork: `git fetch upstream && git merge upstream/main`
    - Create a new branch for your feature/fix
    - Ensure all tests pass: `pytest`
 
 2. **During Development**
+
    - Write tests for new features
    - Follow the code style guide
    - Run tests frequently: `pytest`
@@ -58,6 +63,7 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 ## Code Style Guide
 
 1. **Python Code**
+
    - Follow PEP 8
    - Use type hints
    - Maximum line length: 88 characters (Black standard)
@@ -65,6 +71,7 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
    - Use meaningful variable names
 
 2. **Documentation**
+
    - Update README.md for user-facing changes
    - Add docstrings for new functions/classes
    - Update API documentation if needed
@@ -79,12 +86,14 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 ## Pull Request Process
 
 1. **Before Submitting**
+
    - Update your branch with upstream changes
    - Run all tests and checks
    - Update documentation
    - Squash commits if necessary
 
 2. **Pull Request Template**
+
    - Description of changes
    - Related issue number
    - Type of change (feature/bugfix/docs)
@@ -100,6 +109,7 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 ## Release Process
 
 1. **Versioning**
+
    - Follow semantic versioning
    - Update version in `__init__.py`
    - Update CHANGELOG.md

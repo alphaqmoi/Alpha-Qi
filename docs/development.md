@@ -7,6 +7,7 @@ This guide provides detailed instructions for developers working on the Alpha-Q 
 ### Prerequisites
 
 1. **System Requirements**
+
    - Python 3.8 or higher
    - Git
    - Virtual environment tool (venv, conda, etc.)
@@ -23,6 +24,7 @@ This guide provides detailed instructions for developers working on the Alpha-Q 
 ### Local Setup
 
 1. **Clone and Setup**
+
    ```bash
    # Clone repository
    git clone https://github.com/yourusername/alpha-q.git
@@ -41,6 +43,7 @@ This guide provides detailed instructions for developers working on the Alpha-Q 
    ```
 
 2. **Environment Configuration**
+
    ```bash
    # Copy example environment file
    cp .env.example .env
@@ -55,6 +58,7 @@ This guide provides detailed instructions for developers working on the Alpha-Q 
    ```
 
 3. **Database Setup**
+
    ```bash
    # Initialize database
    flask db init
@@ -101,6 +105,7 @@ alpha-q/
 ### Development Process
 
 1. **Starting Development**
+
    ```bash
    # Create feature branch
    git checkout -b feature/your-feature-name
@@ -110,6 +115,7 @@ alpha-q/
    ```
 
 2. **Running Tests**
+
    ```bash
    # Run all tests
    pytest
@@ -125,6 +131,7 @@ alpha-q/
    ```
 
 3. **Code Quality**
+
    ```bash
    # Format code
    black .
@@ -143,6 +150,7 @@ alpha-q/
    ```
 
 4. **Database Operations**
+
    ```bash
    # Create migration
    flask db migrate -m "description"
@@ -163,6 +171,7 @@ alpha-q/
 ### Testing Guidelines
 
 1. **Test Structure**
+
    - Use pytest fixtures for setup
    - Follow AAA pattern (Arrange, Act, Assert)
    - Mock external dependencies
@@ -170,6 +179,7 @@ alpha-q/
    - Include both unit and integration tests
 
 2. **Test Categories**
+
    ```python
    # Unit tests
    def test_specific_function():
@@ -188,6 +198,7 @@ alpha-q/
    ```
 
 3. **Test Fixtures**
+
    ```python
    @pytest.fixture
    def test_client():
@@ -208,6 +219,7 @@ alpha-q/
 ### Debugging
 
 1. **Logging**
+
    ```python
    import logging
    logger = logging.getLogger(__name__)
@@ -221,6 +233,7 @@ alpha-q/
    ```
 
 2. **Debug Tools**
+
    ```python
    # Debugger
    import ipdb; ipdb.set_trace()
@@ -242,6 +255,7 @@ alpha-q/
 ### Performance Optimization
 
 1. **Code Profiling**
+
    ```bash
    # Profile specific function
    python -m cProfile -o output.prof script.py
@@ -251,6 +265,7 @@ alpha-q/
    ```
 
 2. **Memory Optimization**
+
    ```python
    # Clear memory
    import gc
@@ -264,6 +279,7 @@ alpha-q/
    ```
 
 3. **Database Optimization**
+
    ```python
    # Use bulk operations
    db.session.bulk_save_objects(objects)
@@ -278,6 +294,7 @@ alpha-q/
 ### Security Best Practices
 
 1. **Input Validation**
+
    ```python
    from marshmallow import Schema, fields, validate
 
@@ -288,6 +305,7 @@ alpha-q/
    ```
 
 2. **Authentication**
+
    ```python
    from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -299,6 +317,7 @@ alpha-q/
    ```
 
 3. **Security Headers**
+
    ```python
    from flask_talisman import Talisman
 
@@ -316,6 +335,7 @@ alpha-q/
 ### Production Deployment
 
 1. **Environment Setup**
+
    ```bash
    # Set production environment
    export FLASK_ENV=production
@@ -326,6 +346,7 @@ alpha-q/
    ```
 
 2. **Database Migration**
+
    ```bash
    # Run migrations
    flask db upgrade
@@ -335,6 +356,7 @@ alpha-q/
    ```
 
 3. **Server Configuration**
+
    ```bash
    # Use production server
    gunicorn -w 4 -b 0.0.0.0:5000 app:app
@@ -346,6 +368,7 @@ alpha-q/
 ### Monitoring
 
 1. **Logging Configuration**
+
    ```python
    import logging
    from logging.handlers import RotatingFileHandler
@@ -362,6 +385,7 @@ alpha-q/
    ```
 
 2. **Performance Monitoring**
+
    ```python
    from prometheus_client import Counter, Histogram
    import time
@@ -382,6 +406,7 @@ alpha-q/
 ### Common Issues
 
 1. **Database Connection**
+
    ```bash
    # Check connection
    flask db check
@@ -392,6 +417,7 @@ alpha-q/
    ```
 
 2. **Model Loading**
+
    ```python
    # Check model status
    from utils.model_manager import get_model_status
@@ -403,6 +429,7 @@ alpha-q/
    ```
 
 3. **Resource Issues**
+
    ```python
    # Check system resources
    from utils.system_monitor import get_system_status

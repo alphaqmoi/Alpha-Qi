@@ -74,6 +74,8 @@ from utils.cloud_controller import get_cloud_controller
 from utils.cloud_offloader import OffloadStrategy, get_cloud_offloader
 from utils.colab_integration import check_and_use_colab, get_colab_manager, init_colab
 from utils.enhanced_monitoring import get_monitor
+from agent import AIAgent  # Added import for AIAgent
+import threading
 
 # Configure logging
 logging.basicConfig(
@@ -81,8 +83,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create Flask app
-app = Flask(__name__)
+# Create Flask app with correct folders
+app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("SESSION_SECRET", "default-secret-key-for-development")
 
 # Load configuration
@@ -99,14 +101,41 @@ ai_assistant = None
 # Initialize SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+# Start the agent in the background
+def start_agent_background():
+    try:
+        agent = AIAgent()
 
-def initialize_ai_assistant():
-    """Initialize the AI assistant within the app context"""
-    global ai_assistant
-    if ai_assistant is None:
-        ai_assistant = AICodeAssistant(model_name="Salesforce/codegen-2B-mono")
-    return ai_assistant
+        async def agent_main():
+            try:
+                await agent.run()
+            except Exception as e:
+                logger.error(f"AIAgent runtime error: {e}")
 
+        def run_agent():
+            asyncio.run(agent_main())
+
+        thread = threading.Thread(target=run_agent, daemon=True)
+        thread.start()
+        logger.info("✅ AIAgent launched in background thread.")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to start AIAgent: {str(e)}")
+
+# Initialize app context and optionally the AI assistant
+with app.app_context():
+    if not initialize_ai():
+        logger.warning("Failed to initialize AI assistant. Some features may be limited.")
+    else:
+        start_agent_background()
+
+# Mount system blueprint
+app.register_blueprint(system_bp)
+
+# Root route rendering React entry from templates
+@app.route("/")
+def index():
+    return render_template("index.html")
 
 # Set environment variables for Supabase
 os.environ["SUPABASE_URL"] = os.environ.get(
@@ -2181,10 +2210,12 @@ def handle_message(data):
     except Exception as e:
         emit("error", {"message": str(e)})
 
-
 if __name__ == "__main__":
     # Start the monitoring loop in a separate thread
     monitor.start_monitoring()
+
+    # Launch AI Agent in the background
+    start_agent_background()
 
     # Start Flask app
     socketio.run(app, debug=True, port=5000)

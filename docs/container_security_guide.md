@@ -5,6 +5,7 @@ This guide provides detailed best practices and implementation guidelines for se
 ## Container Runtime Security
 
 ### Base Image Security
+
 - Use minimal base images (e.g., Alpine, Distroless)
 - Regularly update base images
 - Scan base images for vulnerabilities
@@ -13,6 +14,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use multi-stage builds to reduce attack surface
 
 ### Container Isolation
+
 - Use read-only root filesystems
 - Implement network isolation
 - Drop unnecessary capabilities
@@ -22,6 +24,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use user namespaces
 
 ### Resource Management
+
 - Set memory limits
 - Configure CPU quotas
 - Implement PID limits
@@ -33,6 +36,7 @@ This guide provides detailed best practices and implementation guidelines for se
 ## Image Security
 
 ### Image Building
+
 - Use multi-stage builds
 - Remove build dependencies
 - Clean package caches
@@ -42,6 +46,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use build arguments for secrets
 
 ### Image Scanning
+
 - Scan for vulnerabilities
 - Check for malware
 - Verify dependencies
@@ -51,6 +56,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Implement automated scanning
 
 ### Image Signing
+
 - Sign all images
 - Verify signatures
 - Use content trust
@@ -62,6 +68,7 @@ This guide provides detailed best practices and implementation guidelines for se
 ## Kubernetes Security
 
 ### Pod Security
+
 - Use Pod Security Policies
 - Implement network policies
 - Configure security contexts
@@ -71,6 +78,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use admission controllers
 
 ### Network Security
+
 - Implement network policies
 - Use service mesh
 - Enable TLS
@@ -80,6 +88,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Implement DNS policies
 
 ### Secrets Management
+
 - Use Kubernetes secrets
 - Implement external secrets
 - Rotate secrets regularly
@@ -91,6 +100,7 @@ This guide provides detailed best practices and implementation guidelines for se
 ## Runtime Security
 
 ### Monitoring
+
 - Implement container monitoring
 - Use runtime security tools
 - Monitor system calls
@@ -100,6 +110,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use security dashboards
 
 ### Incident Response
+
 - Document procedures
 - Implement logging
 - Enable audit trails
@@ -109,6 +120,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Document recovery steps
 
 ### Compliance
+
 - Implement security policies
 - Document controls
 - Regular audits
@@ -120,6 +132,7 @@ This guide provides detailed best practices and implementation guidelines for se
 ## Implementation Guidelines
 
 ### Docker Security
+
 ```dockerfile
 # Use specific base image
 FROM alpine:3.14
@@ -142,6 +155,7 @@ VOLUME ["/data"]
 ```
 
 ### Kubernetes Security
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -154,23 +168,24 @@ spec:
     runAsGroup: 3000
     fsGroup: 2000
   containers:
-  - name: secure-container
-    image: secure-image:1.0
-    securityContext:
-      allowPrivilegeEscalation: false
-      readOnlyRootFilesystem: true
-      capabilities:
-        drop: ["ALL"]
-    resources:
-      limits:
-        memory: "512Mi"
-        cpu: "500m"
-      requests:
-        memory: "256Mi"
-        cpu: "250m"
+    - name: secure-container
+      image: secure-image:1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+        requests:
+          memory: "256Mi"
+          cpu: "250m"
 ```
 
 ### Network Policy
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -181,29 +196,30 @@ spec:
     matchLabels:
       app: secure-app
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
   ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          role: frontend
-    ports:
-    - protocol: TCP
-      port: 80
+    - from:
+        - podSelector:
+            matchLabels:
+              role: frontend
+      ports:
+        - protocol: TCP
+          port: 80
   egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          role: backend
-    ports:
-    - protocol: TCP
-      port: 8080
+    - to:
+        - podSelector:
+            matchLabels:
+              role: backend
+      ports:
+        - protocol: TCP
+          port: 8080
 ```
 
 ## Security Tools
 
 ### Scanning Tools
+
 - Trivy
 - Clair
 - Anchore
@@ -213,6 +229,7 @@ spec:
 - Sysdig
 
 ### Runtime Security
+
 - Falco
 - gVisor
 - Kata Containers
@@ -222,6 +239,7 @@ spec:
 - OPA
 
 ### Monitoring Tools
+
 - Prometheus
 - Grafana
 - ELK Stack
@@ -233,6 +251,7 @@ spec:
 ## Security Checklist
 
 ### Image Security
+
 - [ ] Use minimal base images
 - [ ] Scan for vulnerabilities
 - [ ] Sign images
@@ -242,6 +261,7 @@ spec:
 - [ ] Implement multi-stage builds
 
 ### Runtime Security
+
 - [ ] Use read-only root
 - [ ] Drop capabilities
 - [ ] Implement network policies
@@ -251,6 +271,7 @@ spec:
 - [ ] Implement RBAC
 
 ### Compliance
+
 - [ ] Document security policies
 - [ ] Regular vulnerability scanning
 - [ ] Implement access controls
@@ -262,18 +283,21 @@ spec:
 ## Additional Resources
 
 ### Documentation
+
 - [Docker Security](https://docs.docker.com/engine/security/)
 - [Kubernetes Security](https://kubernetes.io/docs/concepts/security/)
 - [CNCF Security](https://www.cncf.io/security/)
 - [OWASP Container Security](https://owasp.org/www-project-container-security/)
 
 ### Tools
+
 - [Trivy](https://github.com/aquasecurity/trivy)
 - [Falco](https://falco.org/)
 - [OPA](https://www.openpolicyagent.org/)
 - [Clair](https://github.com/quay/clair)
 
 ### Standards
+
 - [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker/)
 - [CIS Kubernetes Benchmark](https://www.cisecurity.org/benchmark/kubernetes/)
 - [NIST Container Security](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-190.pdf)

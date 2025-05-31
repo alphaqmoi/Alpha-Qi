@@ -7,6 +7,7 @@ Alpha-Q is built with a modular, extensible architecture that follows clean code
 ### Core Components
 
 1. **Web Application Layer**
+
    - Flask-based web server
    - RESTful API endpoints
    - WebSocket support for real-time features
@@ -14,6 +15,7 @@ Alpha-Q is built with a modular, extensible architecture that follows clean code
    - CORS support for cross-origin requests
 
 2. **Database Layer**
+
    - Supabase integration for primary database
    - SQLAlchemy ORM for database operations
    - Migration management with Flask-Migrate
@@ -21,6 +23,7 @@ Alpha-Q is built with a modular, extensible architecture that follows clean code
    - Vector store for AI model embeddings
 
 3. **AI/ML Layer**
+
    - Hugging Face Transformers integration
    - Model management and versioning
    - Resource monitoring and optimization
@@ -50,18 +53,21 @@ graph TD
 ## Key Design Decisions
 
 1. **Modularity**
+
    - Each component is self-contained
    - Clear interfaces between modules
    - Easy to extend and maintain
    - Plugin architecture for new features
 
 2. **Scalability**
+
    - Cloud offloading for heavy computations
    - Resource-aware model loading
    - Efficient database operations
    - Caching strategies
 
 3. **Security**
+
    - JWT-based authentication
    - Environment variable management
    - Secure API endpoints
@@ -77,6 +83,7 @@ graph TD
 ## Data Flow
 
 1. **User Request Flow**
+
    ```
    Client Request
    → Authentication
@@ -88,6 +95,7 @@ graph TD
    ```
 
 2. **AI Model Flow**
+
    ```
    Model Request
    → Resource Check
@@ -110,12 +118,14 @@ graph TD
 ## Configuration Management
 
 1. **Environment Configuration**
+
    - Development/Production settings
    - Environment variables
    - Feature flags
    - Resource limits
 
 2. **Model Configuration**
+
    - Model parameters
    - Resource requirements
    - Caching policies
@@ -130,12 +140,14 @@ graph TD
 ## Security Architecture
 
 1. **Authentication**
+
    - JWT token management
    - Role-based access control
    - Session management
    - OAuth integration
 
 2. **Data Security**
+
    - Encrypted storage
    - Secure communication
    - Input sanitization
@@ -150,12 +162,14 @@ graph TD
 ## Monitoring and Logging
 
 1. **System Monitoring**
+
    - Resource utilization
    - Performance metrics
    - Error tracking
    - Health checks
 
 2. **Application Logging**
+
    - Request logging
    - Error logging
    - Audit logging
@@ -170,12 +184,14 @@ graph TD
 ## Deployment Architecture
 
 1. **Development**
+
    - Local development setup
    - Testing environment
    - CI/CD pipeline
    - Code quality checks
 
 2. **Production**
+
    - Containerized deployment
    - Load balancing
    - Database replication
@@ -190,12 +206,14 @@ graph TD
 ## Future Considerations
 
 1. **Planned Improvements**
+
    - Microservices architecture
    - Enhanced cloud integration
    - Advanced caching
    - Improved monitoring
 
 2. **Scalability Plans**
+
    - Distributed processing
    - Multi-region deployment
    - Advanced load balancing

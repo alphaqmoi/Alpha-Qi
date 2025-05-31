@@ -7,18 +7,21 @@ This guide provides comprehensive testing strategies and examples for the Alpha-
 ### Test Categories
 
 1. **Unit Tests**
+
    - Test individual components
    - Mock external dependencies
    - Fast execution
    - High coverage
 
 2. **Integration Tests**
+
    - Test component interactions
    - Use test database
    - Mock external services
    - Medium execution time
 
 3. **End-to-End Tests**
+
    - Test complete workflows
    - Use staging environment
    - Real external services
@@ -35,6 +38,7 @@ This guide provides comprehensive testing strategies and examples for the Alpha-
 ### Test Configuration
 
 1. **pytest Configuration**
+
    ```ini
    # pytest.ini
    [pytest]
@@ -50,6 +54,7 @@ This guide provides comprehensive testing strategies and examples for the Alpha-
    ```
 
 2. **Test Environment**
+
    ```python
    # tests/conftest.py
    import pytest
@@ -102,6 +107,7 @@ def test_db(app):
 ### Unit Tests
 
 1. **Model Tests**
+
    ```python
    # tests/test_models.py
    def test_user_model(test_db):
@@ -129,6 +135,7 @@ def test_db(app):
    ```
 
 2. **Utility Tests**
+
    ```python
    # tests/test_utils.py
    def test_colab_manager_initialization():
@@ -152,6 +159,7 @@ def test_db(app):
 ### Integration Tests
 
 1. **API Tests**
+
    ```python
    # tests/test_api.py
    def test_login_api(client):
@@ -184,6 +192,7 @@ def test_db(app):
    ```
 
 2. **Database Integration**
+
    ```python
    # tests/test_db_integration.py
    def test_user_creation_flow(test_db):
@@ -220,6 +229,7 @@ def test_db(app):
 ### End-to-End Tests
 
 1. **Workflow Tests**
+
    ```python
    # tests/test_workflows.py
    @pytest.mark.e2e
@@ -256,6 +266,7 @@ def test_db(app):
    ```
 
 2. **User Flow Tests**
+
    ```python
    # tests/test_user_flows.py
    @pytest.mark.e2e
@@ -288,6 +299,7 @@ def test_db(app):
 ### Performance Tests
 
 1. **Load Testing**
+
    ```python
    # tests/test_performance.py
    @pytest.mark.performance
@@ -314,6 +326,7 @@ def test_db(app):
    ```
 
 2. **Resource Monitoring**
+
    ```python
    # tests/test_resources.py
    @pytest.mark.performance
@@ -348,6 +361,7 @@ def test_db(app):
 ### Mocking
 
 1. **External Services**
+
    ```python
    # tests/conftest.py
    @pytest.fixture
@@ -383,6 +397,7 @@ def test_db(app):
 ### Test Data
 
 1. **Fixtures**
+
    ```python
    # tests/fixtures/test_data.py
    @pytest.fixture
@@ -411,6 +426,7 @@ def test_db(app):
    ```
 
 2. **Data Generators**
+
    ```python
    # tests/utils/data_generators.py
    def generate_test_data(size=1000):
@@ -472,46 +488,49 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10']
+        python-version: [3.8, 3.9, "3.10"]
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-    - name: Run tests
-      run: |
-        pytest --cov=alpha_q --cov-report=xml
+      - name: Run tests
+        run: |
+          pytest --cov=alpha_q --cov-report=xml
 
-    - name: Upload coverage
-      uses: codecov/codecov-action@v2
-      with:
-        file: ./coverage.xml
+      - name: Upload coverage
+        uses: codecov/codecov-action@v2
+        with:
+          file: ./coverage.xml
 ```
 
 ## Best Practices
 
 1. **Test Organization**
+
    - Group related tests
    - Use descriptive names
    - Follow AAA pattern
    - Keep tests independent
 
 2. **Test Maintenance**
+
    - Regular test updates
    - Remove obsolete tests
    - Update test data
    - Monitor test performance
 
 3. **Code Quality**
+
    - Follow PEP 8
    - Use type hints
    - Document test cases
@@ -526,6 +545,7 @@ jobs:
 ## Getting Help
 
 For testing issues:
+
 1. Check the [test documentation](docs/testing.md)
 2. Review [test examples](tests/)
 3. Join the [community chat](https://discord.gg/alpha-q)

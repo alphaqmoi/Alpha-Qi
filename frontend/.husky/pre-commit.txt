@@ -1,0 +1,59 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🎨 Running frontend pre-commit checks..."
+
+# Try Bash first
+bash -c '
+  echo "🔍 Running TypeScript type check in frontend..."
+  cd frontend && pnpm tsc --noEmit || exit 1
+
+  echo "🔎 Linting renamed TS/JS files..."
+  renamed_files=$(git diff --cached --name-status | grep "^R" | awk "{print \$3}")
+
+  for file in $renamed_files; do
+    case "$file" in
+      *.ts|*.tsx|*.js|*.jsx)
+        echo "🧪 Linting renamed file: $file"
+        npx eslint "$file" || exit 1
+        ;;
+    esac
+  done
+
+  echo "🧹 Running lint-staged on staged files..."
+  npx lint-staged || exit 1
+' || {
+  # Fallback PowerShell on Windows
+  if [ "$OS" = "Windows_NT" ]; then
+    echo "⚠️ Bash failed, falling back to PowerShell..."
+
+    pwsh -Command '
+      Write-Host "🔍 Running TypeScript type check in frontend..."
+      Set-Location frontend
+      pnpm tsc --noEmit
+      if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      Write-Host "🔎 Linting renamed TS/JS files..."
+      $renamed = git diff --cached --name-status | Where-Object { $_ -match "^R" } | ForEach-Object { ($_ -split "\s+")[2] }
+      foreach ($file in $renamed) {
+        if ($file -match "\.(ts|tsx|js|jsx)$") {
+          Write-Host "🧪 Linting renamed file: $file"
+          npx eslint $file
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+        }
+      }
+
+      Write-Host "🧹 Running lint-staged on staged files..."
+      npx lint-staged
+      if ($LASTEXITCODE -ne 0) { exit 1 }
+    ' || {
+      echo "❌ Commit aborted: Frontend pre-commit checks failed."
+      exit 1
+    }
+  else
+    echo "❌ Commit aborted: Bash failed and no PowerShell fallback available."
+    exit 1
+  fi
+}
+
+echo "✅ Frontend pre-commit checks passed."

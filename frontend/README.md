@@ -27,11 +27,13 @@ A modern web interface for the DevGenius AI-powered development assistant with v
 ## Getting Started
 
 1. Install dependencies:
+
 ```bash
 yarn install
 ```
 
 2. Create a `.env.local` file in the root directory with the following variables:
+
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:5000
 COLAB_API_URL=https://<your-colab-ngrok-url>
@@ -39,6 +41,7 @@ COLAB_API_KEY=your-colab-api-key
 ```
 
 3. Start the development server:
+
 ```bash
 yarn dev
 ```
@@ -48,26 +51,35 @@ yarn dev
 ## Building for Android (APK)
 
 1. Build the web app:
+
 ```bash
 yarn build
 ```
+
 2. Copy output to Capacitor:
+
 ```bash
 npx cap copy android
 ```
+
 3. Open Android Studio:
+
 ```bash
 npx cap open android
 ```
+
 4. Build APK in Android Studio.
 
 ## Building for Windows (EXE) and Mac (DMG)
 
 1. Build the web app:
+
 ```bash
 yarn build
 ```
+
 2. Build Electron app:
+
 ```bash
 yarn electron:build
 ```

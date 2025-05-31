@@ -5,15 +5,19 @@ This document provides a comprehensive overview of the Alpha-Qmoi user interface
 ## UI Features Overview
 
 ### 1. Main Dashboard
+
 The main dashboard serves as the central hub for all development activities.
 
 #### Status Panel
+
 - **Database Connection Status**
+
   - Real-time connection status indicator
   - Database type and connection details
   - Connection health metrics
 
 - **AI Model Status**
+
   - Current model connection status
   - Active model display
   - Model performance metrics
@@ -26,7 +30,9 @@ The main dashboard serves as the central hub for all development activities.
   - Token validation status
 
 #### Quick Access Buttons
+
 - **Chat Interface**
+
   - One-click access to AI chat
   - Recent conversations preview
   - Quick action buttons
@@ -38,7 +44,9 @@ The main dashboard serves as the central hub for all development activities.
   - Deployment configuration
 
 #### Authentication Panel
+
 - **API Token Management**
+
   - Secure token input
   - Token validation
   - Token refresh options
@@ -51,26 +59,32 @@ The main dashboard serves as the central hub for all development activities.
   - Security settings
 
 #### Application Creation Wizard
+
 - **Step 1: Application Setup**
+
   - Application name input
   - Project type selection
   - Template selection
   - Initial configuration
 
 - **Step 2: Application Details**
+
   - Description input
   - Requirements specification
   - Dependencies selection
   - Environment setup
 
 - **Step 3: Application Type**
+
   - Web Application
+
     - Frontend framework selection
     - Backend framework selection
     - Database selection
     - API configuration
 
   - API/Backend
+
     - Framework selection
     - Database integration
     - Authentication setup
@@ -83,13 +97,16 @@ The main dashboard serves as the central hub for all development activities.
     - Build configuration
 
 - **Step 4: Framework Selection**
+
   - Web Frameworks
+
     - React
     - Next.js
     - Vue.js
     - Angular
 
   - Backend Frameworks
+
     - Express (Node.js)
     - Flask (Python)
     - Django (Python)
@@ -100,16 +117,20 @@ The main dashboard serves as the central hub for all development activities.
     - Flutter
 
 ### 2. Chat Interface
+
 The AI-powered chat interface provides intelligent code assistance and development support.
 
 #### Chat Window
+
 - **Message Display**
+
   - Real-time message updates
   - User/AI message differentiation
   - Timestamp display
   - Message threading
 
 - **Message Formatting**
+
   - Code block support
   - Syntax highlighting
   - Markdown rendering
@@ -122,7 +143,9 @@ The AI-powered chat interface provides intelligent code assistance and developme
   - Context menus
 
 #### Input Panel
+
 - **Message Input**
+
   - Multi-line input support
   - Code snippet insertion
   - File attachment
@@ -135,7 +158,9 @@ The AI-powered chat interface provides intelligent code assistance and developme
   - Quick actions
 
 #### Status Indicators
+
 - **Connection Status**
+
   - Online/Offline indicator
   - Connection quality
   - Reconnection options
@@ -148,7 +173,9 @@ The AI-powered chat interface provides intelligent code assistance and developme
   - Progress bars
 
 #### Sidebar Features
+
 - **Navigation**
+
   - Project structure
   - File explorer
   - Recent files
@@ -161,10 +188,13 @@ The AI-powered chat interface provides intelligent code assistance and developme
   - Quick actions
 
 ### 3. Model Management
+
 Comprehensive interface for managing AI models and their configurations.
 
 #### Model Dashboard
+
 - **Model Overview**
+
   - Available models list
   - Model status
   - Performance metrics
@@ -177,7 +207,9 @@ Comprehensive interface for managing AI models and their configurations.
   - Cache management
 
 #### Model Configuration
+
 - **Settings Panel**
+
   - Parameter adjustment
   - Performance tuning
   - Memory management
@@ -190,10 +222,13 @@ Comprehensive interface for managing AI models and their configurations.
   - Backup/Restore
 
 ### 4. Code Editor
+
 Advanced code editing environment with AI assistance.
 
 #### Editor Interface
+
 - **Core Features**
+
   - Syntax highlighting
   - Code completion
   - Error detection
@@ -206,7 +241,9 @@ Advanced code editing environment with AI assistance.
   - Split views
 
 #### AI Assistance
+
 - **Code Intelligence**
+
   - Real-time suggestions
   - Code explanations
   - Refactoring options
@@ -219,7 +256,9 @@ Advanced code editing environment with AI assistance.
   - Documentation
 
 #### Navigation
+
 - **File Management**
+
   - File tree
   - Search
   - Recent files
@@ -232,10 +271,13 @@ Advanced code editing environment with AI assistance.
   - Structure view
 
 ### 5. Terminal Integration
+
 Integrated terminal with advanced development features.
 
 #### Terminal Window
+
 - **Command Interface**
+
   - Command input
   - Output display
   - History
@@ -248,7 +290,9 @@ Integrated terminal with advanced development features.
   - Output filtering
 
 #### Git Integration
+
 - **Version Control**
+
   - Status display
   - Commit interface
   - Branch management
@@ -261,10 +305,13 @@ Integrated terminal with advanced development features.
   - History view
 
 ### 6. Project Management
+
 Comprehensive project management interface.
 
 #### Project Dashboard
+
 - **Overview**
+
   - Project list
   - Status indicators
   - Activity feed
@@ -277,7 +324,9 @@ Comprehensive project management interface.
   - Build status
 
 #### File Management
+
 - **File Operations**
+
   - Upload/Download
   - Directory navigation
   - Search
@@ -290,10 +339,13 @@ Comprehensive project management interface.
   - Backup
 
 ### 7. Settings and Configuration
+
 User and system configuration interface.
 
 #### User Settings
+
 - **Preferences**
+
   - Theme selection
   - Editor settings
   - AI preferences
@@ -306,7 +358,9 @@ User and system configuration interface.
   - Access control
 
 #### System Settings
+
 - **Configuration**
+
   - Database setup
   - API management
   - Cache control
@@ -319,10 +373,13 @@ User and system configuration interface.
   - Maintenance
 
 ### 8. Documentation Features
+
 Comprehensive documentation and help system.
 
 #### Documentation Panel
+
 - **Content**
+
   - Code documentation
   - API reference
   - Usage guides
@@ -335,7 +392,9 @@ Comprehensive documentation and help system.
   - FAQ
 
 #### Help System
+
 - **Support Features**
+
   - Search
   - Categories
   - Examples
@@ -350,18 +409,21 @@ Comprehensive documentation and help system.
 ## Best Practices for UI Usage
 
 1. **Navigation**
+
    - Use the sidebar for quick access to features
    - Utilize keyboard shortcuts for common actions
    - Keep frequently used files in favorites
    - Use the search function for quick navigation
 
 2. **AI Assistance**
+
    - Provide clear context for AI requests
    - Use code snippets for specific issues
    - Review AI suggestions before applying
    - Utilize the chat history for reference
 
 3. **Project Management**
+
    - Organize files in logical directories
    - Use version control for all changes
    - Regular backups of important data

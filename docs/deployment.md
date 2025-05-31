@@ -5,6 +5,7 @@ This guide provides detailed instructions for deploying the Alpha-Q application 
 ## Deployment Environments
 
 ### Development Environment
+
 ```bash
 # Local development setup
 python -m venv venv
@@ -17,12 +18,14 @@ flask run --debug
 ```
 
 ### Staging Environment
+
 ```bash
 # Deploy to staging
 gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 app:app
 ```
 
 ### Production Environment
+
 ```bash
 # Deploy to production
 gunicorn --bind 0.0.0.0:5000 \
@@ -40,6 +43,7 @@ gunicorn --bind 0.0.0.0:5000 \
 ### Docker Deployment
 
 1. **Dockerfile**
+
    ```dockerfile
    # Base image
    FROM python:3.8-slim
@@ -77,9 +81,10 @@ gunicorn --bind 0.0.0.0:5000 \
    ```
 
 2. **Docker Compose**
+
    ```yaml
    # docker-compose.yml
-   version: '3.8'
+   version: "3.8"
 
    services:
      web:
@@ -115,6 +120,7 @@ gunicorn --bind 0.0.0.0:5000 \
 ### Kubernetes Deployment
 
 1. **Deployment Configuration**
+
    ```yaml
    # kubernetes/deployment.yaml
    apiVersion: apps/v1
@@ -134,35 +140,35 @@ gunicorn --bind 0.0.0.0:5000 \
            app: alpha-q
        spec:
          containers:
-         - name: alpha-q
-           image: alpha-q:latest
-           ports:
-           - containerPort: 5000
-           env:
-           - name: DATABASE_URL
-             valueFrom:
-               secretKeyRef:
-                 name: alpha-q-secrets
-                 key: database-url
-           resources:
-             requests:
-               memory: "512Mi"
-               cpu: "250m"
-             limits:
-               memory: "1Gi"
-               cpu: "500m"
-           livenessProbe:
-             httpGet:
-               path: /health
-               port: 5000
-             initialDelaySeconds: 30
-             periodSeconds: 10
-           readinessProbe:
-             httpGet:
-               path: /ready
-               port: 5000
-             initialDelaySeconds: 5
-             periodSeconds: 5
+           - name: alpha-q
+             image: alpha-q:latest
+             ports:
+               - containerPort: 5000
+             env:
+               - name: DATABASE_URL
+                 valueFrom:
+                   secretKeyRef:
+                     name: alpha-q-secrets
+                     key: database-url
+             resources:
+               requests:
+                 memory: "512Mi"
+                 cpu: "250m"
+               limits:
+                 memory: "1Gi"
+                 cpu: "500m"
+             livenessProbe:
+               httpGet:
+                 path: /health
+                 port: 5000
+               initialDelaySeconds: 30
+               periodSeconds: 10
+             readinessProbe:
+               httpGet:
+                 path: /ready
+                 port: 5000
+               initialDelaySeconds: 5
+               periodSeconds: 5
    ```
 
 2. **Service Configuration**
@@ -176,14 +182,15 @@ gunicorn --bind 0.0.0.0:5000 \
      selector:
        app: alpha-q
      ports:
-     - port: 80
-       targetPort: 5000
+       - port: 80
+         targetPort: 5000
      type: LoadBalancer
    ```
 
 ## Database Migration
 
 1. **Initial Setup**
+
    ```bash
    # Create migrations directory
    flask db init
@@ -196,6 +203,7 @@ gunicorn --bind 0.0.0.0:5000 \
    ```
 
 2. **Migration Management**
+
    ```bash
    # Create new migration
    flask db migrate -m "Add user preferences"
@@ -214,6 +222,7 @@ gunicorn --bind 0.0.0.0:5000 \
 ## Environment Configuration
 
 1. **Production Environment**
+
    ```bash
    # .env.production
    FLASK_APP=app.py
@@ -227,6 +236,7 @@ gunicorn --bind 0.0.0.0:5000 \
    ```
 
 2. **Environment Variables**
+
    ```python
    # config.py
    class ProductionConfig:
@@ -252,16 +262,17 @@ gunicorn --bind 0.0.0.0:5000 \
 ## Monitoring Setup
 
 1. **Prometheus Configuration**
+
    ```yaml
    # prometheus.yml
    global:
      scrape_interval: 15s
 
    scrape_configs:
-     - job_name: 'alpha-q'
+     - job_name: "alpha-q"
        static_configs:
-         - targets: ['alpha-q:5000']
-       metrics_path: '/metrics'
+         - targets: ["alpha-q:5000"]
+       metrics_path: "/metrics"
    ```
 
 2. **Grafana Dashboard**
@@ -289,6 +300,7 @@ gunicorn --bind 0.0.0.0:5000 \
 ## Backup and Recovery
 
 1. **Database Backup**
+
    ```bash
    # Backup script
    #!/bin/bash
@@ -307,6 +319,7 @@ gunicorn --bind 0.0.0.0:5000 \
    ```
 
 2. **Recovery Procedure**
+
    ```bash
    # Restore from backup
    gunzip -c backup.sql.gz | psql -U $DB_USER -h $DB_HOST $DB_NAME
@@ -319,6 +332,7 @@ gunicorn --bind 0.0.0.0:5000 \
 ## Scaling
 
 1. **Horizontal Scaling**
+
    ```bash
    # Scale deployment
    kubectl scale deployment alpha-q --replicas=5
@@ -329,6 +343,7 @@ gunicorn --bind 0.0.0.0:5000 \
    ```
 
 2. **Load Balancer Configuration**
+
    ```nginx
    # nginx.conf
    upstream alpha_q {
@@ -352,12 +367,14 @@ gunicorn --bind 0.0.0.0:5000 \
 ## Troubleshooting
 
 1. **Common Issues**
+
    - Database connection failures
    - Memory leaks
    - Slow response times
    - Authentication issues
 
 2. **Debugging Tools**
+
    ```bash
    # Check logs
    kubectl logs -f deployment/alpha-q
@@ -373,6 +390,7 @@ gunicorn --bind 0.0.0.0:5000 \
 ## Security Considerations
 
 1. **SSL/TLS Configuration**
+
    ```nginx
    # SSL configuration
    server {
@@ -399,6 +417,7 @@ gunicorn --bind 0.0.0.0:5000 \
 ## Getting Help
 
 For deployment issues:
+
 1. Check the [deployment documentation](docs/deployment.md)
 2. Review [deployment logs](logs/)
 3. Join the [community chat](https://discord.gg/alpha-q)

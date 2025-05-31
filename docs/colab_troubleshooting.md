@@ -7,6 +7,7 @@ This guide provides solutions for common issues encountered when using Google Co
 ### Authentication Issues
 
 1. **"Failed to authenticate with Google"**
+
    ```bash
    # Check credentials file
    ls -l client_secrets.json
@@ -18,6 +19,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Ensure `client_secrets.json` exists and has correct permissions
    - Verify OAuth credentials in Google Cloud Console
    - Clear existing credentials and re-authenticate:
@@ -29,6 +31,7 @@ This guide provides solutions for common issues encountered when using Google Co
      ```
 
 2. **"Token expired or invalid"**
+
    ```python
    # Check token status
    from utils.colab_integration import get_colab_manager
@@ -38,6 +41,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Delete `credentials.json` and re-authenticate
    - Ensure system time is synchronized
    - Check network connectivity to Google services
@@ -45,6 +49,7 @@ This guide provides solutions for common issues encountered when using Google Co
 ### Connection Issues
 
 1. **"Failed to connect to Colab"**
+
    ```python
    # Check connection status
    from utils.colab_integration import get_colab_manager
@@ -54,6 +59,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Verify internet connection
    - Check if running in Colab environment
    - Ensure Google Drive is accessible
@@ -63,6 +69,7 @@ This guide provides solutions for common issues encountered when using Google Co
      ```
 
 2. **"Drive mount failed"**
+
    ```python
    # Check mount status
    from utils.colab_integration import get_colab_manager
@@ -71,6 +78,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Unmount and remount Google Drive:
      ```python
      from google.colab import drive
@@ -83,6 +91,7 @@ This guide provides solutions for common issues encountered when using Google Co
 ### Resource Management Issues
 
 1. **"Resource threshold exceeded"**
+
    ```python
    # Check resource usage
    from utils.colab_integration import get_colab_manager
@@ -94,6 +103,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Adjust resource threshold:
      ```python
      manager.resource_threshold = 0.9  # Increase threshold
@@ -108,6 +118,7 @@ This guide provides solutions for common issues encountered when using Google Co
      ```
 
 2. **"GPU not available"**
+
    ```python
    # Check GPU status
    from utils.colab_integration import get_colab_manager
@@ -118,6 +129,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Verify CUDA installation
    - Check GPU availability in Colab
    - Switch to CPU runtime if needed
@@ -130,6 +142,7 @@ This guide provides solutions for common issues encountered when using Google Co
 ### File Synchronization Issues
 
 1. **"Failed to sync files to Colab"**
+
    ```python
    # Check sync status
    from utils.colab_integration import get_colab_manager
@@ -138,6 +151,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Verify file permissions
    - Check available disk space
    - Manually sync specific files:
@@ -151,6 +165,7 @@ This guide provides solutions for common issues encountered when using Google Co
      ```
 
 2. **"File not found in Colab"**
+
    ```python
    # List files in Colab
    from pathlib import Path
@@ -159,6 +174,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Verify file paths
    - Check file existence locally
    - Force resync:
@@ -170,6 +186,7 @@ This guide provides solutions for common issues encountered when using Google Co
 ### Runtime Issues
 
 1. **"Runtime disconnected"**
+
    ```python
    # Check runtime status
    from utils.colab_integration import get_colab_manager
@@ -178,6 +195,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Reconnect to runtime:
      ```python
      manager.connect_to_colab()
@@ -187,6 +205,7 @@ This guide provides solutions for common issues encountered when using Google Co
    - Restart Colab runtime
 
 2. **"Memory limit exceeded"**
+
    ```python
    # Monitor memory usage
    from utils.colab_integration import get_colab_manager
@@ -196,6 +215,7 @@ This guide provides solutions for common issues encountered when using Google Co
    ```
 
    **Solutions:**
+
    - Clear memory:
      ```python
      manager.cleanup_runtime()
@@ -207,6 +227,7 @@ This guide provides solutions for common issues encountered when using Google Co
 ## Debugging Tools
 
 ### Resource Monitoring
+
 ```python
 # Start resource monitoring
 from utils.colab_integration import get_colab_manager
@@ -219,6 +240,7 @@ print(manager.stop_monitoring)
 ```
 
 ### Runtime Information
+
 ```python
 # Get detailed runtime info
 runtime_info = manager.get_runtime_info()
@@ -226,6 +248,7 @@ print(json.dumps(runtime_info, indent=2))
 ```
 
 ### Connection Testing
+
 ```python
 # Test Colab connection
 def test_colab_connection():
@@ -242,18 +265,21 @@ def test_colab_connection():
 ## Best Practices
 
 1. **Resource Management**
+
    - Monitor resource usage regularly
    - Set appropriate resource thresholds
    - Clean up resources after heavy operations
    - Use efficient model loading strategies
 
 2. **Connection Handling**
+
    - Implement proper error handling
    - Use connection pooling
    - Implement retry mechanisms
    - Monitor connection health
 
 3. **File Management**
+
    - Use efficient file transfer methods
    - Implement proper file synchronization
    - Maintain backup copies
@@ -275,6 +301,7 @@ If you encounter issues not covered in this guide:
 4. Contact the maintainers
 
 When reporting issues, please include:
+
 - Error messages and stack traces
 - System information
 - Steps to reproduce

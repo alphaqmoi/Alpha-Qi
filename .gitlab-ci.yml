@@ -7,6 +7,7 @@ stages:
 
 variables:
   NODE_ENV: production
+  FORCE_COLOR: "1"
 
 cache:
   key: ${CI_COMMIT_REF_SLUG}
@@ -21,31 +22,32 @@ before_script:
   - echo "🔍 Checking environment setup..."
   - test -f capacitor.config.json || (echo "❌ Missing capacitor.config.json" && exit 1)
   - test -f .env.local || (echo "❌ Missing .env.local file" && exit 1)
-  - yarn install --frozen-lockfile
+  - yarn install --frozen-lockfile || pnpm install --frozen-lockfile
 
 install_dependencies:
   stage: install
   script:
     - echo "📦 Installing dependencies..."
+    - yarn install --frozen-lockfile || pnpm install --frozen-lockfile
 
 lint:
   stage: lint
   script:
-    - echo "🔎 Running ESLint..."
-    - yarn lint
-    - yarn prettier --check .
+    - echo "🔎 Running ESLint and Prettier checks..."
+    - yarn lint || pnpm lint
+    - yarn prettier --check . || pnpm prettier --check .
 
 test:
   stage: test
   script:
     - echo "🧪 Running tests..."
-    - yarn test || echo "⚠️ No test script found, skipping."
+    - yarn test || pnpm test || echo "⚠️ No test script found. Skipping."
 
 build_web:
   stage: build
   script:
     - echo "🌐 Building Next.js app..."
-    - yarn build
+    - yarn build || pnpm build
   artifacts:
     paths:
       - .next/
@@ -56,7 +58,7 @@ build_android:
   stage: package
   script:
     - echo "📱 Building Android APK..."
-    - yarn build
+    - yarn build || pnpm build
     - npx cap sync android
     - cd android
     - ./gradlew assembleRelease
@@ -71,8 +73,8 @@ build_electron:
   stage: package
   script:
     - echo "🖥️ Building Electron app..."
-    - yarn build
-    - yarn electron:build
+    - yarn build || pnpm build
+    - yarn electron:build || pnpm electron:build
   artifacts:
     paths:
       - dist/

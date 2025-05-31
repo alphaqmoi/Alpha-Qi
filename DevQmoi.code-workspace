@@ -1,0 +1,20 @@
+{
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "frontend"
+    },
+    {
+      "path": "server"
+    },
+    {
+      "path": "shared"
+    }
+  ],
+  "settings": {
+    "eslint.workingDirectories": ["frontend", "server", "shared"],
+    "typescript.tsdk": "node_modules/typescript/lib"
+  }
+}

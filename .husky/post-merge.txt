@@ -1,0 +1,18 @@
+npx husky add .husky/post-merge '
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🔄 Running post-merge tasks..."
+
+pnpm install || {
+  echo "❌ Dependency install failed."
+  exit 1
+}
+
+pnpm build || {
+  echo "❌ Build failed after merge."
+  exit 1
+}
+
+echo "✅ Post-merge tasks completed."
+'

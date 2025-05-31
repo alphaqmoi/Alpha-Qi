@@ -7,12 +7,14 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Components
 
 1. **Application Metrics**
+
    - Request rates and latencies
    - Error rates and types
    - Resource usage
    - Custom business metrics
 
 2. **System Metrics**
+
    - CPU usage
    - Memory consumption
    - Disk I/O
@@ -29,6 +31,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Prometheus Integration
 
 1. **Basic Setup**
+
    ```python
    # metrics.py
    from prometheus_client import Counter, Histogram, Gauge
@@ -72,6 +75,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```
 
 2. **Middleware Integration**
+
    ```python
    # middleware.py
    from functools import wraps
@@ -107,6 +111,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Custom Metrics
 
 1. **Model Performance**
+
    ```python
    # model_metrics.py
    class ModelMetrics:
@@ -134,6 +139,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```
 
 2. **Resource Monitoring**
+
    ```python
    # resource_metrics.py
    import psutil
@@ -164,60 +170,62 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Alert Rules
 
 1. **Prometheus Rules**
+
    ```yaml
    # prometheus/rules.yml
    groups:
-   - name: alpha_q
-     rules:
-     - alert: HighErrorRate
-       expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
-       for: 5m
-       labels:
-         severity: critical
-       annotations:
-         summary: High error rate detected
-         description: Error rate is {{ $value }} for the last 5 minutes
+     - name: alpha_q
+       rules:
+         - alert: HighErrorRate
+           expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+           for: 5m
+           labels:
+             severity: critical
+           annotations:
+             summary: High error rate detected
+             description: Error rate is {{ $value }} for the last 5 minutes
 
-     - alert: HighLatency
-       expr: http_request_duration_seconds{quantile="0.9"} > 1
-       for: 5m
-       labels:
-         severity: warning
-       annotations:
-         summary: High latency detected
-         description: 90th percentile latency is {{ $value }}s
+         - alert: HighLatency
+           expr: http_request_duration_seconds{quantile="0.9"} > 1
+           for: 5m
+           labels:
+             severity: warning
+           annotations:
+             summary: High latency detected
+             description: 90th percentile latency is {{ $value }}s
 
-     - alert: HighResourceUsage
-       expr: |
-         cpu_usage_percent > 80 or
-         memory_usage_bytes / memory_total_bytes > 0.9
-       for: 5m
-       labels:
-         severity: warning
-       annotations:
-         summary: High resource usage
-         description: Resource usage is above threshold
+         - alert: HighResourceUsage
+           expr: |
+             cpu_usage_percent > 80 or
+             memory_usage_bytes / memory_total_bytes > 0.9
+           for: 5m
+           labels:
+             severity: warning
+           annotations:
+             summary: High resource usage
+             description: Resource usage is above threshold
    ```
 
 2. **Alert Manager Configuration**
+
    ```yaml
    # alertmanager/config.yml
    global:
      resolve_timeout: 5m
-     slack_api_url: 'https://hooks.slack.com/services/...'
+     slack_api_url: "https://hooks.slack.com/services/..."
 
    route:
-     group_by: ['alertname', 'severity']
+     group_by: ["alertname", "severity"]
      group_wait: 30s
      group_interval: 5m
      repeat_interval: 4h
-     receiver: 'slack-notifications'
+     receiver: "slack-notifications"
 
    receivers:
-   - name: 'slack-notifications'
-     slack_configs:
-     - channel: '#alerts'
-       send_resolved: true
+     - name: "slack-notifications"
+       slack_configs:
+         - channel: "#alerts"
+           send_resolved: true
    ```
 
 ## Logging
@@ -225,6 +233,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Log Configuration
 
 1. **Structured Logging**
+
    ```python
    # logging.py
    import structlog
@@ -254,6 +263,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```
 
 2. **Log Aggregation**
+
    ```python
    # log_handlers.py
    from logging.handlers import RotatingFileHandler
@@ -286,6 +296,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Grafana Dashboards
 
 1. **Application Overview**
+
    ```json
    {
      "dashboard": {
@@ -356,6 +367,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Endpoint Monitoring
 
 1. **Health Check Endpoints**
+
    ```python
    # health.py
    from flask import Blueprint, jsonify
@@ -389,6 +401,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```
 
 2. **Component Checks**
+
    ```python
    # health_checks.py
    def check_database():
@@ -426,6 +439,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ### Profiling Tools
 
 1. **Request Profiling**
+
    ```python
    # profiling.py
    import cProfile
@@ -446,6 +460,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
    ```
 
 2. **Memory Profiling**
+
    ```python
    # memory_profiler.py
    from memory_profiler import profile
@@ -463,18 +478,21 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ## Best Practices
 
 1. **Metric Naming**
+
    - Use consistent naming conventions
    - Include units in metric names
    - Use appropriate metric types
    - Add meaningful labels
 
 2. **Alerting**
+
    - Set appropriate thresholds
    - Use meaningful alert messages
    - Implement proper escalation
    - Avoid alert fatigue
 
 3. **Logging**
+
    - Use structured logging
    - Include relevant context
    - Set appropriate log levels
@@ -489,6 +507,7 @@ This guide provides comprehensive monitoring strategies and tools for the Alpha-
 ## Getting Help
 
 For monitoring issues:
+
 1. Check the [monitoring documentation](docs/monitoring.md)
 2. Review [monitoring logs](logs/)
 3. Join the [community chat](https://discord.gg/alpha-q)

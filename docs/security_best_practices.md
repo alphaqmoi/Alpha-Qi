@@ -7,6 +7,7 @@ This document outlines security best practices for the application, covering clo
 ### AWS Security
 
 #### Storage Security
+
 - Enable default encryption for all S3 buckets using AES-256 or KMS
 - Enforce secure transport (HTTPS) for all S3 operations
 - Block public access to buckets
@@ -16,6 +17,7 @@ This document outlines security best practices for the application, covering clo
 - Use bucket replication for critical data
 
 #### Secrets Management
+
 - Use AWS Secrets Manager for sensitive data
 - Enable automatic rotation for all secrets
 - Use KMS for encryption
@@ -24,6 +26,7 @@ This document outlines security best practices for the application, covering clo
 - Use separate secrets for different environments
 
 #### Audit Logging
+
 - Enable CloudTrail for all regions
 - Enable log file validation
 - Configure CloudWatch Logs integration
@@ -34,6 +37,7 @@ This document outlines security best practices for the application, covering clo
 ### GCP Security
 
 #### Storage Security
+
 - Enable default encryption using Cloud KMS
 - Use uniform bucket-level access
 - Prevent public access
@@ -43,6 +47,7 @@ This document outlines security best practices for the application, covering clo
 - Use bucket replication
 
 #### Secrets Management
+
 - Use Secret Manager for sensitive data
 - Enable automatic rotation
 - Use Cloud KMS for encryption
@@ -51,6 +56,7 @@ This document outlines security best practices for the application, covering clo
 - Use environment-specific secrets
 
 #### Audit Logging
+
 - Enable Cloud Audit Logs
 - Configure log sinks
 - Set up alerts
@@ -60,6 +66,7 @@ This document outlines security best practices for the application, covering clo
 ## Container Security
 
 ### Runtime Security
+
 - Use seccomp profiles to restrict syscalls
 - Implement AppArmor profiles
 - Drop unnecessary capabilities
@@ -69,6 +76,7 @@ This document outlines security best practices for the application, covering clo
 - Implement resource limits
 
 ### Image Security
+
 - Scan images for vulnerabilities
 - Sign images using Docker Content Trust
 - Use minimal base images
@@ -78,6 +86,7 @@ This document outlines security best practices for the application, covering clo
 - Use private registries
 
 ### Kubernetes Security
+
 - Enable Pod Security Policies
 - Use Network Policies
 - Implement RBAC
@@ -87,6 +96,7 @@ This document outlines security best practices for the application, covering clo
 - Enable admission controllers
 
 ### Secrets Management
+
 - Use Kubernetes Secrets or external solutions
 - Encrypt secrets at rest
 - Rotate secrets regularly
@@ -97,6 +107,7 @@ This document outlines security best practices for the application, covering clo
 ## Application Security
 
 ### Authentication
+
 - Implement strong password policies
 - Enable MFA
 - Use secure session management
@@ -106,6 +117,7 @@ This document outlines security best practices for the application, covering clo
 - Regular security training
 
 ### Authorization
+
 - Implement RBAC
 - Follow least privilege principle
 - Regular access reviews
@@ -115,6 +127,7 @@ This document outlines security best practices for the application, covering clo
 - Document access policies
 
 ### API Security
+
 - Implement rate limiting
 - Validate all inputs
 - Use proper authentication
@@ -124,6 +137,7 @@ This document outlines security best practices for the application, covering clo
 - Implement API versioning
 
 ### Data Security
+
 - Encrypt data at rest
 - Use TLS for data in transit
 - Implement data validation
@@ -133,6 +147,7 @@ This document outlines security best practices for the application, covering clo
 - Regular security assessments
 
 ### Logging and Monitoring
+
 - Enable comprehensive logging
 - Implement log retention
 - Use secure log storage
@@ -144,6 +159,7 @@ This document outlines security best practices for the application, covering clo
 ## Compliance and Governance
 
 ### Compliance
+
 - Regular security assessments
 - Implement security policies
 - Document security procedures
@@ -153,6 +169,7 @@ This document outlines security best practices for the application, covering clo
 - Monitor regulatory changes
 
 ### Incident Response
+
 - Develop incident response plan
 - Regular security drills
 - Document procedures
@@ -162,6 +179,7 @@ This document outlines security best practices for the application, covering clo
 - Post-incident reviews
 
 ### Security Testing
+
 - Regular vulnerability scanning
 - Penetration testing
 - Code security reviews
@@ -173,6 +191,7 @@ This document outlines security best practices for the application, covering clo
 ## Development Practices
 
 ### Secure Development
+
 - Follow secure coding guidelines
 - Regular code reviews
 - Use security linters
@@ -182,6 +201,7 @@ This document outlines security best practices for the application, covering clo
 - Document security requirements
 
 ### Infrastructure as Code
+
 - Version control all configurations
 - Regular security reviews
 - Implement least privilege
@@ -191,6 +211,7 @@ This document outlines security best practices for the application, covering clo
 - Test security changes
 
 ### Monitoring and Alerting
+
 - Implement comprehensive monitoring
 - Set up security alerts
 - Regular alert reviews

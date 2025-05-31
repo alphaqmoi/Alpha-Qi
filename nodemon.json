@@ -1,0 +1,6 @@
+{
+  "watch": ["server"],
+  "ext": "ts tsx",
+  "ignore": ["node_modules"],
+  "exec": "tsx -r tsconfig-paths/register --transpile-only server/index.ts"
+}

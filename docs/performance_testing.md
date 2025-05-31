@@ -9,16 +9,19 @@ Performance testing ensures that the system meets performance requirements under
 ### Key Metrics
 
 1. **Response Time**
+
    - API endpoint latency
    - Model inference time
    - File operation duration
 
 2. **Throughput**
+
    - Requests per second
    - Batch processing rate
    - Data transfer speed
 
 3. **Resource Usage**
+
    - CPU utilization
    - Memory consumption
    - GPU utilization
@@ -406,11 +409,13 @@ def generate_report(metrics, analysis):
 ## Getting Help
 
 1. **Documentation**
+
    - Performance testing guide
    - Tool documentation
    - Best practices
 
 2. **Tools**
+
    - pytest-benchmark
    - locust
    - prometheus

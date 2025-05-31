@@ -5,6 +5,7 @@ This guide provides detailed best practices and implementation guidelines for se
 ## AWS Security
 
 ### Identity and Access Management (IAM)
+
 - Use least privilege principle
 - Implement role-based access control (RBAC)
 - Enable MFA for all users
@@ -14,6 +15,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Enable CloudTrail logging
 
 ### Storage Security (S3)
+
 - Enable default encryption
 - Use bucket policies
 - Implement versioning
@@ -23,6 +25,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Enable public access blocking
 
 ### Network Security
+
 - Use VPC security groups
 - Implement network ACLs
 - Use AWS WAF
@@ -32,6 +35,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use AWS Network Firewall
 
 ### Compute Security
+
 - Use AWS Systems Manager
 - Implement security groups
 - Use AWS Config
@@ -41,6 +45,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use AWS GuardDuty
 
 ### Secrets Management
+
 - Use AWS Secrets Manager
 - Implement key rotation
 - Use AWS KMS
@@ -52,6 +57,7 @@ This guide provides detailed best practices and implementation guidelines for se
 ## GCP Security
 
 ### Identity and Access Management (IAM)
+
 - Use least privilege principle
 - Implement role-based access control
 - Enable 2-Step Verification
@@ -61,6 +67,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Enable audit logging
 
 ### Storage Security (Cloud Storage)
+
 - Enable default encryption
 - Use IAM policies
 - Implement versioning
@@ -70,6 +77,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Enable public access prevention
 
 ### Network Security
+
 - Use VPC firewall rules
 - Implement Cloud Armor
 - Use Cloud IDS
@@ -79,6 +87,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use Cloud Firewall
 
 ### Compute Security
+
 - Use Security Command Center
 - Implement OS patch management
 - Use Container-Optimized OS
@@ -88,6 +97,7 @@ This guide provides detailed best practices and implementation guidelines for se
 - Use Binary Authorization
 
 ### Secrets Management
+
 - Use Secret Manager
 - Implement key rotation
 - Use Cloud KMS
@@ -99,103 +109,100 @@ This guide provides detailed best practices and implementation guidelines for se
 ## Implementation Guidelines
 
 ### AWS Security Configuration
+
 ```json
 {
-    "S3BucketPolicy": {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Sid": "SecureTransport",
-                "Effect": "Deny",
-                "Principal": "*",
-                "Action": "s3:*",
-                "Resource": "arn:aws:s3:::bucket-name/*",
-                "Condition": {
-                    "Bool": {
-                        "aws:SecureTransport": "false"
-                    }
-                }
-            },
-            {
-                "Sid": "EnforceTLS",
-                "Effect": "Deny",
-                "Principal": "*",
-                "Action": "s3:*",
-                "Resource": "arn:aws:s3:::bucket-name/*",
-                "Condition": {
-                    "NumericLessThan": {
-                        "s3:TlsVersion": "1.2"
-                    }
-                }
-            }
-        ]
-    },
-    "IAMPolicy": {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "s3:GetObject",
-                    "s3:ListBucket"
-                ],
-                "Resource": [
-                    "arn:aws:s3:::bucket-name",
-                    "arn:aws:s3:::bucket-name/*"
-                ],
-                "Condition": {
-                    "StringEquals": {
-                        "aws:PrincipalTag/Environment": "production"
-                    }
-                }
-            }
-        ]
-    }
+  "S3BucketPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "SecureTransport",
+        "Effect": "Deny",
+        "Principal": "*",
+        "Action": "s3:*",
+        "Resource": "arn:aws:s3:::bucket-name/*",
+        "Condition": {
+          "Bool": {
+            "aws:SecureTransport": "false"
+          }
+        }
+      },
+      {
+        "Sid": "EnforceTLS",
+        "Effect": "Deny",
+        "Principal": "*",
+        "Action": "s3:*",
+        "Resource": "arn:aws:s3:::bucket-name/*",
+        "Condition": {
+          "NumericLessThan": {
+            "s3:TlsVersion": "1.2"
+          }
+        }
+      }
+    ]
+  },
+  "IAMPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": ["s3:GetObject", "s3:ListBucket"],
+        "Resource": ["arn:aws:s3:::bucket-name", "arn:aws:s3:::bucket-name/*"],
+        "Condition": {
+          "StringEquals": {
+            "aws:PrincipalTag/Environment": "production"
+          }
+        }
+      }
+    ]
+  }
 }
 ```
 
 ### GCP Security Configuration
+
 ```yaml
 # IAM Policy
 bindings:
-- role: roles/storage.objectViewer
-  members:
-  - serviceAccount:service@project.iam.gserviceaccount.com
-  condition:
-    expression: resource.type == "storage.googleapis.com/Bucket" && resource.name.startsWith("projects/_/buckets/secure-bucket")
+  - role: roles/storage.objectViewer
+    members:
+      - serviceAccount:service@project.iam.gserviceaccount.com
+    condition:
+      expression: resource.type == "storage.googleapis.com/Bucket" && resource.name.startsWith("projects/_/buckets/secure-bucket")
 
 # Storage Bucket Policy
 bucket_policy:
   version: 3
   bindings:
-  - role: roles/storage.objectViewer
-    members:
-    - user:user@example.com
-    condition:
-      expression: request.time < timestamp('2023-12-31T00:00:00.000Z')
-  - role: roles/storage.objectCreator
-    members:
-    - serviceAccount:service@project.iam.gserviceaccount.com
+    - role: roles/storage.objectViewer
+      members:
+        - user:user@example.com
+      condition:
+        expression: request.time < timestamp('2023-12-31T00:00:00.000Z')
+    - role: roles/storage.objectCreator
+      members:
+        - serviceAccount:service@project.iam.gserviceaccount.com
 
 # VPC Firewall Rules
 firewall_rules:
-- name: allow-internal
-  network: default
-  source_ranges:
-  - 10.0.0.0/8
-  allowed:
-  - IPProtocol: tcp
-    ports:
-    - '80'
-    - '443'
-  target_tags:
-  - internal
-  direction: INGRESS
+  - name: allow-internal
+    network: default
+    source_ranges:
+      - 10.0.0.0/8
+    allowed:
+      - IPProtocol: tcp
+        ports:
+          - "80"
+          - "443"
+    target_tags:
+      - internal
+    direction: INGRESS
 ```
 
 ## Security Tools
 
 ### AWS Security Tools
+
 - AWS Security Hub
 - AWS GuardDuty
 - AWS Inspector
@@ -205,6 +212,7 @@ firewall_rules:
 - AWS Shield
 
 ### GCP Security Tools
+
 - Security Command Center
 - Cloud Armor
 - Cloud IDS
@@ -214,6 +222,7 @@ firewall_rules:
 - Cloud HSM
 
 ### Third-Party Tools
+
 - Prisma Cloud
 - Aqua Security
 - Sysdig
@@ -225,6 +234,7 @@ firewall_rules:
 ## Security Checklist
 
 ### Identity and Access
+
 - [ ] Implement least privilege
 - [ ] Enable MFA/2-Step Verification
 - [ ] Use service accounts/roles
@@ -234,6 +244,7 @@ firewall_rules:
 - [ ] Implement RBAC
 
 ### Storage Security
+
 - [ ] Enable encryption
 - [ ] Configure access policies
 - [ ] Enable versioning
@@ -243,6 +254,7 @@ firewall_rules:
 - [ ] Use secure transport
 
 ### Network Security
+
 - [ ] Configure firewalls
 - [ ] Enable flow logs
 - [ ] Use WAF/Cloud Armor
@@ -252,6 +264,7 @@ firewall_rules:
 - [ ] Regular security scanning
 
 ### Compute Security
+
 - [ ] Patch management
 - [ ] Security monitoring
 - [ ] Vulnerability scanning
@@ -263,6 +276,7 @@ firewall_rules:
 ## Compliance and Standards
 
 ### AWS Compliance
+
 - SOC 2
 - ISO 27001
 - PCI DSS
@@ -272,6 +286,7 @@ firewall_rules:
 - NIST
 
 ### GCP Compliance
+
 - SOC 2
 - ISO 27001
 - PCI DSS
@@ -281,6 +296,7 @@ firewall_rules:
 - NIST
 
 ### Industry Standards
+
 - CIS Benchmarks
 - NIST Guidelines
 - OWASP Top 10
@@ -292,18 +308,21 @@ firewall_rules:
 ## Additional Resources
 
 ### Documentation
+
 - [AWS Security Best Practices](https://aws.amazon.com/architecture/security-identity-compliance/)
 - [GCP Security Best Practices](https://cloud.google.com/security)
 - [CIS Benchmarks](https://www.cisecurity.org/benchmark/)
 - [NIST Cloud Security](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-144.pdf)
 
 ### Tools
+
 - [AWS Security Hub](https://aws.amazon.com/security-hub/)
 - [GCP Security Command Center](https://cloud.google.com/security-command-center)
 - [Prisma Cloud](https://www.paloaltonetworks.com/prisma/cloud)
 - [Aqua Security](https://www.aquasec.com/)
 
 ### Training
+
 - [AWS Security Training](https://aws.amazon.com/training/security/)
 - [GCP Security Training](https://cloud.google.com/training/security)
 - [Cloud Security Alliance](https://cloudsecurityalliance.org/education/)

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "../components/ui/use-toast";
 
 interface User {
   id: string;
@@ -24,17 +24,14 @@ interface UseAuthReturn {
 export function useAuth(): UseAuthReturn {
   const { toast } = useToast();
 
-  // State
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Check auth status on mount
   useEffect(() => {
     checkAuth();
   }, []);
 
-  // Check authentication status
   const checkAuth = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -72,18 +69,55 @@ export function useAuth(): UseAuthReturn {
     }
   }, []);
 
-  // Login
   const login = useCallback(
     async (email: string, password: string) => {
       setLoading(true);
       setError(null);
 
       try {
+        // Check predefined users from .env
+        const rawUsers = import.meta.env.VITE_PREDEFINED_USERS as string;
+        const predefinedUsers: Record<
+          string,
+          { password: string; user: User }
+        > = {};
+
+        if (rawUsers) {
+          rawUsers.split(",").forEach((entry, index) => {
+            const [envEmail, envPass, envName] = entry.split(":");
+            if (envEmail && envPass && envName) {
+              predefinedUsers[envEmail] = {
+                password: envPass,
+                user: {
+                  id: String(index + 1),
+                  email: envEmail,
+                  name: envName,
+                  token: `env-token-${index + 1}`,
+                  role: "user",
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                },
+              };
+            }
+          });
+        }
+
+        // Auto-login if email/password match env
+        if (
+          predefinedUsers[email] &&
+          predefinedUsers[email].password === password
+        ) {
+          const { user } = predefinedUsers[email];
+          localStorage.setItem("token", user.token);
+          setUser(user);
+          setLoading(false);
+          return;
+        }
+
+        // Normal login
         const response = await fetch("/api/auth/login", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
         });
 
@@ -91,10 +125,7 @@ export function useAuth(): UseAuthReturn {
         if (data.status === "success") {
           const { token, user } = data;
           localStorage.setItem("token", token);
-          setUser({
-            ...user,
-            token,
-          });
+          setUser({ ...user, token });
         } else {
           throw new Error(data.message);
         }
@@ -113,7 +144,6 @@ export function useAuth(): UseAuthReturn {
     [toast],
   );
 
-  // Logout
   const logout = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -136,7 +166,6 @@ export function useAuth(): UseAuthReturn {
     }
   }, [user]);
 
-  // Register
   const register = useCallback(
     async (email: string, password: string, name: string) => {
       setLoading(true);
@@ -145,9 +174,7 @@ export function useAuth(): UseAuthReturn {
       try {
         const response = await fetch("/api/auth/register", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password, name }),
         });
 
@@ -155,10 +182,7 @@ export function useAuth(): UseAuthReturn {
         if (data.status === "success") {
           const { token, user } = data;
           localStorage.setItem("token", token);
-          setUser({
-            ...user,
-            token,
-          });
+          setUser({ ...user, token });
         } else {
           throw new Error(data.message);
         }
@@ -178,7 +202,6 @@ export function useAuth(): UseAuthReturn {
     [toast],
   );
 
-  // Update profile
   const updateProfile = useCallback(
     async (data: Partial<User>) => {
       if (!user) return;

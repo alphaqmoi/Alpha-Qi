@@ -1,0 +1,43 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🚀 Running frontend pre-push checks..."
+
+# Bash attempt
+bash -c '
+  echo "🔍 Running frontend type check..."
+  cd frontend && pnpm tsc --noEmit || exit 1
+
+  echo "🧹 Running frontend lint check..."
+  pnpm eslint --ext .ts,.tsx . || exit 1
+
+  echo "🧪 Running frontend tests..."
+  pnpm test || exit 1
+' || {
+  if [ "$OS" = "Windows_NT" ]; then
+    echo "⚠️ Bash failed, falling back to PowerShell..."
+
+    pwsh -Command '
+      Write-Host "🔍 Running frontend type check..."
+      Set-Location frontend
+      pnpm tsc --noEmit
+      if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      Write-Host "🧹 Running frontend lint check..."
+      pnpm eslint --ext .ts,.tsx .
+      if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      Write-Host "🧪 Running frontend tests..."
+      pnpm test
+      if ($LASTEXITCODE -ne 0) { exit 1 }
+    ' || {
+      echo "❌ Push aborted: Frontend pre-push checks failed."
+      exit 1
+    }
+  else
+    echo "❌ Push aborted: Bash failed and no PowerShell fallback available."
+    exit 1
+  fi
+}
+
+echo "✅ Frontend pre-push checks passed."

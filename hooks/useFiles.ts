@@ -12,14 +12,14 @@ export type FileType = {
 export const addFileToPath = (
   filesArray: FileType[],
   pathParts: string[],
-  newFile: FileType
+  newFile: FileType,
 ): FileType[] => {
   if (pathParts.length === 0) return [...filesArray, newFile];
 
   const [currentPart, ...restParts] = pathParts;
 
   let found = filesArray.find(
-    (f) => f.name === currentPart && f.type === "folder"
+    (f) => f.name === currentPart && f.type === "folder",
   );
 
   if (!found) {
@@ -32,19 +32,23 @@ export const addFileToPath = (
     filesArray = [...filesArray, found];
   }
 
-  const updatedChildren = addFileToPath(found.children ?? [], restParts, newFile);
+  const updatedChildren = addFileToPath(
+    found.children ?? [],
+    restParts,
+    newFile,
+  );
 
   return filesArray.map((f) =>
     f.name === currentPart && f.type === "folder"
       ? { ...f, children: updatedChildren }
-      : f
+      : f,
   );
 };
 
 // Pure helper to delete a file/folder by id from the tree
 export const deleteFileFromTree = (
   filesArray: FileType[],
-  fileId: string
+  fileId: string,
 ): FileType[] => {
   return filesArray
     .filter((file) => file.id !== fileId)

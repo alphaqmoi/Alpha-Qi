@@ -217,3 +217,4 @@ wheels/
 client_secrets.json
 "*.env"
 "credentials.json"
+.husky/_/

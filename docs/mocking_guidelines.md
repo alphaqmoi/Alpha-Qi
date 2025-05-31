@@ -7,6 +7,7 @@ This document provides guidelines and examples for using mocks in the Alpha-Q pr
 ### When to Mock
 
 1. **External Dependencies**
+
    - Database operations
    - File system operations
    - Network requests
@@ -14,11 +15,13 @@ This document provides guidelines and examples for using mocks in the Alpha-Q pr
    - GPU/CPU operations
 
 2. **Slow Operations**
+
    - Model loading
    - Data processing
    - Resource-intensive computations
 
 3. **Unpredictable Behavior**
+
    - Random number generation
    - Time-based operations
    - System resources
@@ -31,6 +34,7 @@ This document provides guidelines and examples for using mocks in the Alpha-Q pr
 ### Mock Types
 
 1. **MagicMock**
+
    ```python
    from unittest.mock import MagicMock
 
@@ -43,6 +47,7 @@ This document provides guidelines and examples for using mocks in the Alpha-Q pr
    ```
 
 2. **Patch Decorator**
+
    ```python
    from unittest.mock import patch
 
@@ -284,21 +289,25 @@ mock_download = patch('app.storage.download')  # Don't do this
 ## Common Pitfalls
 
 1. **Over-mocking**
+
    - Don't mock everything
    - Mock only external dependencies
    - Test real behavior when possible
 
 2. **Under-mocking**
+
    - Mock external dependencies
    - Mock slow operations
    - Mock unpredictable behavior
 
 3. **Incorrect Scope**
+
    - Use appropriate fixture scope
    - Reset mocks between tests
    - Avoid global mocks
 
 4. **Missing Verification**
+
    - Verify mock calls
    - Check call arguments
    - Verify side effects
@@ -311,16 +320,19 @@ mock_download = patch('app.storage.download')  # Don't do this
 ## Tools and Resources
 
 1. **pytest-mock**
+
    - Fixture for mocks
    - Automatic cleanup
    - Better integration
 
 2. **unittest.mock**
+
    - Basic mocking
    - Patch decorators
    - MagicMock
 
 3. **Documentation**
+
    - Python unittest.mock
    - pytest-mock
    - Mocking patterns

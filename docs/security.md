@@ -7,6 +7,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Authentication & Authorization
 
 1. **JWT Implementation**
+
    ```python
    from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 
@@ -31,6 +32,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 2. **Role-Based Access Control**
+
    ```python
    from functools import wraps
 
@@ -55,6 +57,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Data Security
 
 1. **Environment Variables**
+
    ```bash
    # .env.example
    FLASK_SECRET_KEY=your-secret-key
@@ -67,6 +70,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 2. **Database Security**
+
    ```python
    # Database connection with SSL
    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', '').replace(
@@ -87,6 +91,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 3. **API Security**
+
    ```python
    from flask_talisman import Talisman
 
@@ -123,6 +128,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Model Security
 
 1. **Model Access Control**
+
    ```python
    class ModelAccess(db.Model):
        model_id = db.Column(db.String(50), primary_key=True)
@@ -138,6 +144,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 2. **Input Validation**
+
    ```python
    from marshmallow import Schema, fields, validate
 
@@ -160,6 +167,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### System Security
 
 1. **Resource Isolation**
+
    ```python
    def isolate_model_execution(model_id, input_data):
        """Run model in isolated environment"""
@@ -181,6 +189,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 2. **Monitoring and Logging**
+
    ```python
    import logging
    from logging.handlers import RotatingFileHandler
@@ -208,6 +217,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Development
 
 1. **Code Security**
+
    - Use type hints and static analysis
    - Implement input validation
    - Follow secure coding guidelines
@@ -215,6 +225,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    - Dependency scanning
 
 2. **Testing**
+
    ```python
    def test_security_headers(client):
        response = client.get('/')
@@ -231,6 +242,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Deployment
 
 1. **Server Security**
+
    ```nginx
    # nginx configuration
    server {
@@ -256,6 +268,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 2. **Container Security**
+
    ```dockerfile
    # Dockerfile
    FROM python:3.8-slim
@@ -280,6 +293,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Monitoring
 
 1. **Security Monitoring**
+
    ```python
    from prometheus_client import Counter, Histogram
 
@@ -301,6 +315,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 2. **Alerting**
+
    ```python
    def check_security_alerts():
        """Check for security alerts"""
@@ -321,12 +336,14 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Security Incidents
 
 1. **Detection**
+
    - Monitor security logs
    - Review access patterns
    - Check system metrics
    - Analyze user reports
 
 2. **Response**
+
    ```python
    def handle_security_incident(incident_type, details):
        """Handle security incident"""
@@ -354,6 +371,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ### Data Protection
 
 1. **Data Classification**
+
    ```python
    class DataClassification:
        PUBLIC = 'public'
@@ -371,6 +389,7 @@ This guide outlines security best practices and considerations for the Alpha-Q p
    ```
 
 2. **Data Retention**
+
    ```python
    def enforce_data_retention():
        """Enforce data retention policies"""
@@ -390,12 +409,14 @@ This guide outlines security best practices and considerations for the Alpha-Q p
 ## Getting Help
 
 For security concerns:
+
 1. Report security issues to security@alpha-q.com
 2. Use the security issue template on GitHub
 3. Contact the security team
 4. Check the [security policy](SECURITY.md)
 
 Remember:
+
 - Never commit sensitive data
 - Keep dependencies updated
 - Follow security best practices

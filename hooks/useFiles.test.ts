@@ -1,8 +1,4 @@
-import {
-  addFileToPath,
-  deleteFileFromTree,
-  type FileType,
-} from "./useFiles";
+import { addFileToPath, deleteFileFromTree, type FileType } from "./useFiles";
 
 describe("File Tree Helpers", () => {
   const initialFiles: FileType[] = [

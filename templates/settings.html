@@ -1,185 +1,237 @@
-{% extends "base.html" %}
-
-{% block content %}
+{% extends "base.html" %} {% block content %}
 <div class="container mt-4">
-    <h2>AlphaQ Settings</h2>
+  <h2>AlphaQ Settings</h2>
 
-    <!-- External Resource Settings -->
-    <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h4>External Resource Settings</h4>
-            <button class="btn btn-sm btn-outline-primary" onclick="refreshCloudStatus()">
-                <i class="fas fa-sync-alt"></i> Refresh Status
-            </button>
-        </div>
-        <div class="card-body">
-            <!-- Resource Strategy Selection -->
-            <div class="mb-4">
-                <label class="form-label">Resource Strategy</label>
-                <select class="form-select" id="resourceStrategy">
-                    <option value="colab" {% if settings.strategy == 'colab' %}selected{% endif %}>
-                        Google Colab (Recommended)
-                    </option>
-                    <option value="huggingface" {% if settings.strategy == 'huggingface' %}selected{% endif %}>
-                        Hugging Face Hub
-                    </option>
-                    <option value="local" {% if settings.strategy == 'local' %}selected{% endif %}>
-                        Local Only
-                    </option>
-                </select>
-                <small class="form-text text-muted">
-                    Choose where to run AI models. Colab is recommended for better performance.
-                </small>
-            </div>
-
-            <!-- External Resource Toggle -->
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" id="externalResourcesToggle"
-                       {% if settings.external_resources_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="externalResourcesToggle">
-                    Allow External Resource Usage
-                </label>
-                <small class="form-text text-muted d-block">
-                    When enabled, AlphaQ can use cloud resources for heavy tasks.
-                    This requires an internet connection.
-                </small>
-            </div>
-
-            <!-- Cloud Status -->
-            <div id="cloudStatus" class="alert {% if settings.cloud_available %}alert-success{% else %}alert-warning{% endif %} mb-3">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>Cloud Status:</strong>
-                        <span id="cloudStatusText">
-                            {% if settings.cloud_available %}
-                                Connected and available
-                            {% else %}
-                                Not connected
-                            {% endif %}
-                        </span>
-                    </div>
-                    <div id="cloudStatusSpinner" class="spinner-border spinner-border-sm d-none" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Resource Usage Threshold -->
-            <div class="mb-3">
-                <label class="form-label">Resource Usage Threshold</label>
-                <input type="range" class="form-range" id="resourceThreshold"
-                       min="0" max="100" value="{{ settings.resource_threshold|default(80) }}">
-                <small class="form-text text-muted">
-                    System resource threshold (in %) before considering cloud offloading
-                </small>
-            </div>
-        </div>
+  <!-- External Resource Settings -->
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h4>External Resource Settings</h4>
+      <button
+        class="btn btn-sm btn-outline-primary"
+        onclick="refreshCloudStatus()"
+      >
+        <i class="fas fa-sync-alt"></i> Refresh Status
+      </button>
     </div>
+    <div class="card-body">
+      <!-- Resource Strategy Selection -->
+      <div class="mb-4">
+        <label class="form-label">Resource Strategy</label>
+        <select class="form-select" id="resourceStrategy">
+          <option
+            value="colab"
+            {%
+            if
+            settings.strategy=""
+            ="colab"
+            %}selected{%
+            endif
+            %}
+          >
+            Google Colab (Recommended)
+          </option>
+          <option
+            value="huggingface"
+            {%
+            if
+            settings.strategy=""
+            ="huggingface"
+            %}selected{%
+            endif
+            %}
+          >
+            Hugging Face Hub
+          </option>
+          <option
+            value="local"
+            {%
+            if
+            settings.strategy=""
+            ="local"
+            %}selected{%
+            endif
+            %}
+          >
+            Local Only
+          </option>
+        </select>
+        <small class="form-text text-muted">
+          Choose where to run AI models. Colab is recommended for better
+          performance.
+        </small>
+      </div>
 
-    <!-- Model Status Dashboard -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h4>Model Status Dashboard</h4>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Model</th>
-                            <th>Status</th>
-                            <th>Memory Usage</th>
-                            <th>GPU</th>
-                            <th>Last Updated</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="modelStatusTable">
-                        <!-- Model status rows will be inserted here -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+      <!-- External Resource Toggle -->
+      <div class="form-check form-switch mb-3">
+        <input
+          class="form-check-input"
+          type="checkbox"
+          id="externalResourcesToggle"
+          {%
+          if
+          settings.external_resources_enabled
+          %}checked{%
+          endif
+          %}
+        />
+        <label class="form-check-label" for="externalResourcesToggle">
+          Allow External Resource Usage
+        </label>
+        <small class="form-text text-muted d-block">
+          When enabled, AlphaQ can use cloud resources for heavy tasks. This
+          requires an internet connection.
+        </small>
+      </div>
 
-    <!-- Task Queue Status -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h4>Task Queue Status</h4>
+      <!-- Cloud Status -->
+      <div
+        id="cloudStatus"
+        class="alert {% if settings.cloud_available %}alert-success{% else %}alert-warning{% endif %} mb-3"
+      >
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <strong>Cloud Status:</strong>
+            <span id="cloudStatusText">
+              {% if settings.cloud_available %} Connected and available {% else
+              %} Not connected {% endif %}
+            </span>
+          </div>
+          <div
+            id="cloudStatusSpinner"
+            class="spinner-border spinner-border-sm d-none"
+            role="status"
+          >
+            <span class="visually-hidden">Loading...</span>
+          </div>
         </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Queue Size</h5>
-                            <h2 id="queueSize" class="text-center">0</h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Active Tasks</h5>
-                            <div id="activeTasks" class="list-group">
-                                <!-- Active tasks will be listed here -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+      </div>
+
+      <!-- Resource Usage Threshold -->
+      <div class="mb-3">
+        <label class="form-label">Resource Usage Threshold</label>
+        <input
+          type="range"
+          class="form-range"
+          id="resourceThreshold"
+          min="0"
+          max="100"
+          value="{{ settings.resource_threshold|default(80) }}"
+        />
+        <small class="form-text text-muted">
+          System resource threshold (in %) before considering cloud offloading
+        </small>
+      </div>
     </div>
+  </div>
+
+  <!-- Model Status Dashboard -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h4>Model Status Dashboard</h4>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Status</th>
+              <th>Memory Usage</th>
+              <th>GPU</th>
+              <th>Last Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="modelStatusTable">
+            <!-- Model status rows will be inserted here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task Queue Status -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h4>Task Queue Status</h4>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">Queue Size</h5>
+              <h2 id="queueSize" class="text-center">0</h2>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">Active Tasks</h5>
+              <div id="activeTasks" class="list-group">
+                <!-- Active tasks will be listed here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const externalResourcesToggle = document.getElementById('externalResourcesToggle');
-    const resourceThreshold = document.getElementById('resourceThreshold');
-    const resourceStrategy = document.getElementById('resourceStrategy');
+  document.addEventListener("DOMContentLoaded", function () {
+    const externalResourcesToggle = document.getElementById(
+      "externalResourcesToggle",
+    );
+    const resourceThreshold = document.getElementById("resourceThreshold");
+    const resourceStrategy = document.getElementById("resourceStrategy");
 
     // Update cloud status periodically
     function updateCloudStatus() {
-        const spinner = document.getElementById('cloudStatusSpinner');
-        spinner.classList.remove('d-none');
+      const spinner = document.getElementById("cloudStatusSpinner");
+      spinner.classList.remove("d-none");
 
-        fetch('/api/cloud/status')
-            .then(response => response.json())
-            .then(data => {
-                updateStatusDisplay(data);
-                updateModelStatus(data.model_status);
-                updateTaskQueue(data.queue_size, data.active_tasks);
-            })
-            .catch(error => {
-                console.error('Error fetching cloud status:', error);
-                document.getElementById('cloudStatus').className = 'alert alert-danger';
-                document.getElementById('cloudStatusText').textContent = 'Error fetching status';
-            })
-            .finally(() => {
-                spinner.classList.add('d-none');
-            });
+      fetch("/api/cloud/status")
+        .then((response) => response.json())
+        .then((data) => {
+          updateStatusDisplay(data);
+          updateModelStatus(data.model_status);
+          updateTaskQueue(data.queue_size, data.active_tasks);
+        })
+        .catch((error) => {
+          console.error("Error fetching cloud status:", error);
+          document.getElementById("cloudStatus").className =
+            "alert alert-danger";
+          document.getElementById("cloudStatusText").textContent =
+            "Error fetching status";
+        })
+        .finally(() => {
+          spinner.classList.add("d-none");
+        });
     }
 
     function updateStatusDisplay(data) {
-        const statusDiv = document.getElementById('cloudStatus');
-        const statusText = document.getElementById('cloudStatusText');
+      const statusDiv = document.getElementById("cloudStatus");
+      const statusText = document.getElementById("cloudStatusText");
 
-        if (data.colab_connected) {
-            statusDiv.className = 'alert alert-success';
-            statusText.textContent = 'Connected and available';
-        } else {
-            statusDiv.className = 'alert alert-warning';
-            statusText.textContent = 'Not connected';
-        }
+      if (data.colab_connected) {
+        statusDiv.className = "alert alert-success";
+        statusText.textContent = "Connected and available";
+      } else {
+        statusDiv.className = "alert alert-warning";
+        statusText.textContent = "Not connected";
+      }
     }
 
     function updateModelStatus(modelStatus) {
-        const tableBody = document.getElementById('modelStatusTable');
-        tableBody.innerHTML = '';
+      const tableBody = document.getElementById("modelStatusTable");
+      tableBody.innerHTML = "";
 
-        Object.entries(modelStatus).forEach(([modelName, status]) => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
+      Object.entries(modelStatus).forEach(([modelName, status]) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
                 <td>${modelName}</td>
                 <td>
                     <span class="badge bg-${getStatusBadgeClass(status.status)}">
@@ -188,7 +240,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </td>
                 <td>${formatMemoryUsage(status.memory_usage)}</td>
                 <td>
-                    <i class="fas fa-${status.gpu_available ? 'check text-success' : 'times text-danger'}"></i>
+                    <i class="fas fa-${status.gpu_available ? "check text-success" : "times text-danger"}"></i>
                 </td>
                 <td>${formatTimestamp(status.loaded_at)}</td>
                 <td>
@@ -198,21 +250,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     </button>
                 </td>
             `;
-            tableBody.appendChild(row);
-        });
+        tableBody.appendChild(row);
+      });
     }
 
     function updateTaskQueue(queueSize, activeTasks) {
-        document.getElementById('queueSize').textContent = queueSize;
+      document.getElementById("queueSize").textContent = queueSize;
 
-        const activeTasksDiv = document.getElementById('activeTasks');
-        activeTasksDiv.innerHTML = '';
+      const activeTasksDiv = document.getElementById("activeTasks");
+      activeTasksDiv.innerHTML = "";
 
-        if (activeTasks && activeTasks.length > 0) {
-            activeTasks.forEach(task => {
-                const taskElement = document.createElement('div');
-                taskElement.className = 'list-group-item';
-                taskElement.innerHTML = `
+      if (activeTasks && activeTasks.length > 0) {
+        activeTasks.forEach((task) => {
+          const taskElement = document.createElement("div");
+          taskElement.className = "list-group-item";
+          taskElement.innerHTML = `
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
                             <strong>${task.model}</strong>
@@ -223,104 +275,109 @@ document.addEventListener('DOMContentLoaded', function() {
                         </span>
                     </div>
                 `;
-                activeTasksDiv.appendChild(taskElement);
-            });
-        } else {
-            activeTasksDiv.innerHTML = '<div class="text-center text-muted">No active tasks</div>';
-        }
+          activeTasksDiv.appendChild(taskElement);
+        });
+      } else {
+        activeTasksDiv.innerHTML =
+          '<div class="text-center text-muted">No active tasks</div>';
+      }
     }
 
     function getStatusBadgeClass(status) {
-        switch (status) {
-            case 'ready': return 'success';
-            case 'loading': return 'warning';
-            case 'error': return 'danger';
-            default: return 'secondary';
-        }
+      switch (status) {
+        case "ready":
+          return "success";
+        case "loading":
+          return "warning";
+        case "error":
+          return "danger";
+        default:
+          return "secondary";
+      }
     }
 
     function formatMemoryUsage(usage) {
-        if (!usage) return 'N/A';
-        return `${(usage / 1024 / 1024).toFixed(2)} MB`;
+      if (!usage) return "N/A";
+      return `${(usage / 1024 / 1024).toFixed(2)} MB`;
     }
 
     function formatTimestamp(timestamp) {
-        if (!timestamp) return 'N/A';
-        return new Date(timestamp).toLocaleString();
+      if (!timestamp) return "N/A";
+      return new Date(timestamp).toLocaleString();
     }
 
     function reloadModel(modelName) {
-        fetch(`/api/models/${modelName}/reload`, { method: 'POST' })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    updateCloudStatus();
-                } else {
-                    alert('Error reloading model: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error reloading model:', error);
-                alert('Error reloading model');
-            });
+      fetch(`/api/models/${modelName}/reload`, { method: "POST" })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.success) {
+            updateCloudStatus();
+          } else {
+            alert("Error reloading model: " + data.message);
+          }
+        })
+        .catch((error) => {
+          console.error("Error reloading model:", error);
+          alert("Error reloading model");
+        });
     }
 
     // Save settings when changed
     function saveSettings() {
-        const settings = {
-            external_resources_enabled: externalResourcesToggle.checked,
-            resource_threshold: resourceThreshold.value,
-            strategy: resourceStrategy.value
-        };
+      const settings = {
+        external_resources_enabled: externalResourcesToggle.checked,
+        resource_threshold: resourceThreshold.value,
+        strategy: resourceStrategy.value,
+      };
 
-        fetch('/api/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(settings)
+      fetch("/api/settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(settings),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.success) {
+            showToast("Settings saved successfully");
+          } else {
+            showToast("Error saving settings", "error");
+          }
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast('Settings saved successfully');
-            } else {
-                showToast('Error saving settings', 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Error saving settings:', error);
-            showToast('Error saving settings', 'error');
+        .catch((error) => {
+          console.error("Error saving settings:", error);
+          showToast("Error saving settings", "error");
         });
     }
 
-    function showToast(message, type = 'success') {
-        const toast = document.createElement('div');
-        toast.className = `toast align-items-center text-white bg-${type} border-0`;
-        toast.setAttribute('role', 'alert');
-        toast.setAttribute('aria-live', 'assertive');
-        toast.setAttribute('aria-atomic', 'true');
+    function showToast(message, type = "success") {
+      const toast = document.createElement("div");
+      toast.className = `toast align-items-center text-white bg-${type} border-0`;
+      toast.setAttribute("role", "alert");
+      toast.setAttribute("aria-live", "assertive");
+      toast.setAttribute("aria-atomic", "true");
 
-        toast.innerHTML = `
+      toast.innerHTML = `
             <div class="d-flex">
                 <div class="toast-body">${message}</div>
                 <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
         `;
 
-        document.body.appendChild(toast);
-        const bsToast = new bootstrap.Toast(toast);
-        bsToast.show();
+      document.body.appendChild(toast);
+      const bsToast = new bootstrap.Toast(toast);
+      bsToast.show();
 
-        toast.addEventListener('hidden.bs.toast', () => {
-            document.body.removeChild(toast);
-        });
+      toast.addEventListener("hidden.bs.toast", () => {
+        document.body.removeChild(toast);
+      });
     }
 
     // Event listeners
-    externalResourcesToggle.addEventListener('change', saveSettings);
-    resourceThreshold.addEventListener('change', saveSettings);
-    resourceStrategy.addEventListener('change', saveSettings);
+    externalResourcesToggle.addEventListener("change", saveSettings);
+    resourceThreshold.addEventListener("change", saveSettings);
+    resourceStrategy.addEventListener("change", saveSettings);
 
     // Global refresh function
     window.refreshCloudStatus = updateCloudStatus;
@@ -328,6 +385,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial update and periodic refresh
     updateCloudStatus();
     setInterval(updateCloudStatus, 30000);
-});
+  });
 </script>
 {% endblock %}

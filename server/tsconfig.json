@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "module": "CommonJS",                   // or ESNext if you're using ESM
+    "target": "ES2022",
+    "lib": ["ESNext"],
+    "moduleResolution": "node",
+    "types": ["node"],
+    "sourceMap": true,
+    "outDir": "../dist/server"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts", "**/*.spec.ts"]
+}

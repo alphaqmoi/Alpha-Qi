@@ -9,16 +9,19 @@ Security testing ensures that the system is protected against various security t
 ### Key Areas
 
 1. **Authentication**
+
    - User authentication
    - Token management
    - Session handling
 
 2. **Authorization**
+
    - Access control
    - Role-based permissions
    - Resource protection
 
 3. **Data Security**
+
    - Encryption
    - Data validation
    - Secure storage
@@ -684,11 +687,13 @@ def generate_security_report(metrics, events):
 ## Getting Help
 
 1. **Documentation**
+
    - Security testing guide
    - Tool documentation
    - Best practices
 
 2. **Tools**
+
    - pytest
    - bandit
    - safety

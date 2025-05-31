@@ -30,6 +30,7 @@ def test_<functionality>_<scenario>():
 ```
 
 ### Example: Model Validation
+
 ```python
 def test_validate_model_parameters_invalid_architecture():
     """Test model parameter validation with invalid architecture.
@@ -89,6 +90,7 @@ def test_<component>_<interaction>_<scenario>():
 ```
 
 ### Example: Model Training Integration
+
 ```python
 def test_model_training_with_colab_fallback():
     """Test model training with Colab fallback when local resources are insufficient.
@@ -153,6 +155,7 @@ def test_<endpoint>_<method>_<scenario>():
 ```
 
 ### Example: Model Creation API
+
 ```python
 def test_create_model_unauthorized():
     """Test model creation endpoint when user is not authenticated.
@@ -214,6 +217,7 @@ def test_<operation>_performance():
 ```
 
 ### Example: Model Inference Performance
+
 ```python
 def test_model_inference_performance():
     """Test model inference performance with batch processing.
@@ -278,6 +282,7 @@ def test_<component>_<security_aspect>():
 ```
 
 ### Example: Authentication Security
+
 ```python
 def test_auth_token_tampering():
     """Test authentication system against token tampering.
@@ -309,30 +314,35 @@ def test_auth_token_tampering():
 ## Best Practices
 
 1. **Test Organization**
+
    - Group related tests in classes
    - Use descriptive test names
    - Follow AAA pattern (Arrange, Act, Assert)
    - Include docstrings with Given/When/Then
 
 2. **Test Data**
+
    - Use fixtures for common setup
    - Create factory functions for test data
    - Clean up test data after tests
    - Use parameterized tests for multiple scenarios
 
 3. **Assertions**
+
    - One logical assertion per test
    - Use specific assertion messages
    - Test both positive and negative cases
    - Verify side effects
 
 4. **Mocking**
+
    - Mock external dependencies
    - Use appropriate mock scopes
    - Verify mock interactions
    - Reset mocks between tests
 
 5. **Performance**
+
    - Set appropriate timeouts
    - Use appropriate test categories
    - Monitor resource usage

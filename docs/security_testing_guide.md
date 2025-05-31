@@ -35,6 +35,7 @@ Located in `tests/security/test_auth_security.py`, these tests verify:
 - Multi-factor authentication
 
 Example:
+
 ```python
 def test_password_hashing(self, security_test_client, security_config):
     """Test password hashing security."""
@@ -62,6 +63,7 @@ Located in `tests/security/test_authz_security.py`, these tests verify:
 - Token scope validation
 
 Example:
+
 ```python
 def test_role_based_access(self, security_test_client, security_config):
     """Test role-based access control."""
@@ -87,6 +89,7 @@ Located in `tests/security/test_api_security.py`, these tests verify:
 - Error handling
 
 Example:
+
 ```python
 def test_rate_limiting(self, security_test_client, security_config):
     """Test API rate limiting."""
@@ -113,6 +116,7 @@ Located in `tests/security/test_data_security.py`, these tests verify:
 - Audit logging
 
 Example:
+
 ```python
 def test_data_encryption(self, security_test_client, security_config):
     """Test data encryption."""
@@ -139,6 +143,7 @@ Located in `tests/security/test_file_security.py`, these tests verify:
 - Access control
 
 Example:
+
 ```python
 def test_file_upload_validation(self, security_test_client, security_config):
     """Test file upload validation."""
@@ -166,6 +171,7 @@ Located in `tests/security/test_network_security.py`, these tests verify:
 - Network monitoring
 
 Example:
+
 ```python
 def test_ssl_tls_configuration(self, security_test_client, security_config):
     """Test SSL/TLS configuration."""
@@ -195,6 +201,7 @@ Located in `tests/security/test_cloud_security.py`, these tests verify:
 - Cloud disaster recovery
 
 Example:
+
 ```python
 def test_cloud_storage_security(self, security_test_client, security_config):
     """Test cloud storage security."""
@@ -230,6 +237,7 @@ Located in `tests/security/test_container_security.py`, these tests verify:
 - Container forensics
 
 Example:
+
 ```python
 def test_container_image_security(self, security_test_client, security_config):
     """Test container image security."""
@@ -344,6 +352,7 @@ pytest -m "security and not slow" -v
 ### Test Reports
 
 Test reports are generated in the `tests/security/reports` directory:
+
 - HTML coverage reports
 - Security test results
 - Performance metrics
@@ -351,18 +360,21 @@ Test reports are generated in the `tests/security/reports` directory:
 ## Best Practices
 
 1. **Test Organization**
+
    - Keep tests focused and atomic
    - Use descriptive test names
    - Follow the Arrange-Act-Assert pattern
    - Document test prerequisites
 
 2. **Security Considerations**
+
    - Never store sensitive data in test files
    - Use test-specific credentials
    - Clean up test data after execution
    - Validate security headers
 
 3. **Performance**
+
    - Mock external services
    - Use appropriate timeouts
    - Implement retry mechanisms
@@ -377,18 +389,21 @@ Test reports are generated in the `tests/security/reports` directory:
 ### Cloud Security Best Practices
 
 1. **Credentials Management**
+
    - Rotate credentials regularly
    - Use encryption for credential storage
    - Implement least privilege access
    - Monitor credential usage
 
 2. **Storage Security**
+
    - Enable encryption at rest and in transit
    - Implement versioning
    - Use secure backup procedures
    - Monitor storage access
 
 3. **Access Control**
+
    - Use IAM policies
    - Implement bucket policies
    - Enable audit logging
@@ -403,18 +418,21 @@ Test reports are generated in the `tests/security/reports` directory:
 ### Container Security Best Practices
 
 1. **Runtime Security**
+
    - Use security profiles (seccomp, AppArmor)
    - Restrict container capabilities
    - Implement read-only root filesystem
    - Prevent privilege escalation
 
 2. **Image Security**
+
    - Scan images for vulnerabilities
    - Sign images
    - Validate base images
    - Use trusted registries
 
 3. **Network Security**
+
    - Implement network policies
    - Enable network isolation
    - Use secure DNS policies
@@ -476,12 +494,14 @@ Test reports are generated in the `tests/security/reports` directory:
 ### Common Issues
 
 1. **Test Failures**
+
    - Check test prerequisites
    - Verify configuration settings
    - Review test data
    - Check network connectivity
 
 2. **Performance Issues**
+
    - Review timeout settings
    - Check resource usage
    - Verify mock implementations
@@ -496,12 +516,14 @@ Test reports are generated in the `tests/security/reports` directory:
 ### Getting Help
 
 1. **Documentation**
+
    - Review test documentation
    - Check configuration guides
    - Read security best practices
    - Consult API documentation
 
 2. **Support**
+
    - Contact security team
    - Submit issue reports
    - Request code review
@@ -516,12 +538,14 @@ Test reports are generated in the `tests/security/reports` directory:
 ### Cloud Security Issues
 
 1. **Credential Problems**
+
    - Check credential rotation status
    - Verify encryption settings
    - Review access logs
    - Check IAM policies
 
 2. **Storage Issues**
+
    - Verify encryption status
    - Check backup configuration
    - Review access patterns
@@ -536,24 +560,28 @@ Test reports are generated in the `tests/security/reports` directory:
 ### Container Security Issues
 
 1. **Runtime Issues**
+
    - Check security profiles
    - Verify capabilities
    - Review container logs
    - Monitor resource usage
 
 2. **Image Issues**
+
    - Run vulnerability scans
    - Verify image signatures
    - Check base images
    - Review registry access
 
 3. **Network Issues**
+
    - Review network policies
    - Check isolation settings
    - Verify DNS configuration
    - Monitor network traffic
 
 4. **Cloud Security Support**
+
    - Cloud provider security teams
    - Cloud security forums
    - Security compliance teams

@@ -1,0 +1,23 @@
+const renameFile = useCallback(
+  async (oldUri: string, newUri: string) => {
+    const oldModel = monaco.editor.getModel(monaco.Uri.parse(oldUri));
+    if (!oldModel || !languageClient) return;
+
+    const newModel = monaco.editor.createModel(
+      oldModel.getValue(),
+      oldModel.getLanguageId(),
+      monaco.Uri.parse(newUri)
+    );
+    oldModel.dispose();
+    monacoEditor?.setModel(newModel);
+
+    try {
+      await languageClient.sendRequest("workspace/willRenameFiles", {
+        files: [{ oldUri, newUri }],
+      });
+    } catch (err) {
+      console.error("LSP rename failed", err);
+    }
+  },
+  [languageClient, monacoEditor]
+);

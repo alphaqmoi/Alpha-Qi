@@ -1,51 +1,8 @@
-# Compatibility-fixed versions
-pydantic==1.10.13
-httpx==0.23.3
-cryptography==42.0.8
-dill==0.3.6
-tzdata==2025.1
-
-# Testing
-pytest
-pytest-cov
-pytest-mock
-pytest-asyncio
-pytest-xdist
-coverage[toml]
-faker
-
-# Code Quality
-black==22.12.0
-flake8
-mypy
-isort
-pylint
-bandit
-safety==2.3.5
-pre-commit
-
-# Documentation
-sphinx
-sphinx-rtd-theme
-sphinx-autodoc-typehints
-mkdocs
-mkdocs-material
-
-# Development Tools
-ipython
-ipdb
-watchdog
-python-dotenv
-requests-mock
-aioresponses
-
-# Type Checking
-types-requests
-types-PyYAML
-types-python-dateutil
-types-pytz
-
-# Debugging
-debugpy
-memory-profiler
-line-profiler
+repos:
+  - repo: local
+    hooks:
+      - id: compile-requirements
+        name: Compile requirements
+        entry: pip-compile requirements-dev.in --output-file requirements-dev.txt
+        language: system
+        files: requirements-dev.in

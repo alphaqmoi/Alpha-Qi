@@ -1,5 +1,8 @@
 # Alpha-Q: AI Application Builder
 
+![CI](https://github.com/alphaqmoi/alpha-q/actions/workflows/ci.yml/badge.svg)
+![Coverage](https://codecov.io/gh/alphaqmoi/alpha-q/branch/main/graph/badge.svg)
+
 Alpha-Q is an intelligent application builder that leverages AI to help developers create, manage, and deploy applications efficiently.
 
 ---
@@ -14,6 +17,20 @@ Alpha-Q is an intelligent application builder that leverages AI to help develope
 * 🔐 Auth + GitHub Integration
 * 🤸‍ Browser & Internet Automation
 * 🧕 User-Centric Learning & Context Retention
+
+---
+
+## 📊 System Architecture
+
+```mermaid
+graph TD
+    A[Frontend: Vite + React + Tailwind] -->|HTTP| B(Express Server)
+    B --> C[AI Engine: HuggingFace Inference]
+    B --> D[Drizzle ORM + Supabase/Local DB]
+    B --> E[Auth: Passport + GitHub]
+    F[CLI, System, Electron App] --> B
+    B --> G[WebSocket for Realtime Updates]
+```
 
 ---
 
@@ -33,35 +50,34 @@ Alpha-Q is an intelligent application builder that leverages AI to help develope
 ### 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/alpha-q.git
+git clone https://github.com/alphaqmoi/alpha-q.git
 cd alpha-q
 ```
 
-### 2. Run the setup script (recommended):
+### 2. Setup (auto):
 
 ```bash
-./setup-dev.sh  # For macOS/Linux
-# or on Windows (CMD):
+./setup-dev.sh  # macOS/Linux
+# OR on Windows:
 setup-dev.bat
 ```
 
-<details>
-<summary>🔧 Manual setup (if not using the script)</summary>
+### 3. Manual Setup (alternative):
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
 pre-commit install
 pre-commit autoupdate
 ```
 
-</details>
-
 ---
 
-### 3. Add a `.env` file:
+### 4. Configure Environment:
+
+`.env` example:
 
 ```env
 FLASK_APP=app.py
@@ -76,7 +92,7 @@ JWT_SECRET=your-jwt-secret
 
 ---
 
-### 4. Initialize the database:
+### 5. Initialize Database:
 
 ```bash
 flask db upgrade
@@ -103,68 +119,72 @@ flask db upgrade
 | DB Migrate     | `make migrate`      |
 | Init AI Models | `make init-models`  |
 
+### Yarn/Web Frontend (Optional):
+
+```bash
+yarn dev        # Start dev server
+yarn build      # Build production frontend
+yarn start      # Start server
+yarn check      # TypeScript check
+yarn lint       # ESLint
+yarn db:push    # Push DB changes
+```
+
 ---
 
 ## 📂 Project Structure
 
 ```
 alpha-q/
-├── app.py
-├── config.py
-├── models.py
-├── database.py
-├── extensions.py
-├── requirements*.txt
-├── .env
-├── migrations/
-├── scripts/
-│   └── init_models.py
-├── utils/
-│   ├── colab_integration.py
-│   ├── cloud_controller.py
-│   ├── cloud_offloader.py
-│   └── enhanced_monitoring.py
-├── routes/
-│   └── system_routes.py
-├── templates/
-│   ├── index.html
-│   ├── chat.html
-│   ├── models.html
-│   └── system_manager.html
+├── frontend/         # React + Vite frontend
+├── server/           # Express server backend
+├── shared/           # Shared types/utils
+├── database/         # ORM + Drizzle + Schema
+├── scripts/          # Utility scripts
+├── .env              # Environment variables
+├── setup-dev.sh      # Auto setup script
+├── README.md         # You're here
 ```
 
 ---
 
-## 🌐 Web Interface
+## 🌐 Web Routes
 
-* `/` - Main app interface
-* `/chat` - AI chat
-* `/models` - Model manager
-* `/system` - System control
-* `/monitor` - Monitoring dashboard
-
----
-
-## 🧪 Testing & Formatting
-
-```bash
-pytest              # Run tests
-black .             # Format code
-flake8              # Lint
-mypy .              # Type check
-```
+* `/` - Main Interface
+* `/chat` - AI Assistant
+* `/models` - Model Manager
+* `/system` - System/CLI Control
+* `/monitor` - Realtime Monitoring
 
 ---
 
-## 📦 Yarn-based Web Interface (optional frontend)
+## 📺 Example Usage GIFs
 
-```bash
-yarn dev        # Start dev server
-yarn build      # Build production assets
-yarn start      # Start production server
-yarn check      # TypeScript check
-yarn db:push    # Push DB changes (Drizzle ORM)
-```
+| Feature              | GIF Preview                                                         |
+| -------------------- | ------------------------------------------------------------------- |
+| Build via Prompt     | ![build](https://via.placeholder.com/300x150?text=Build+via+Prompt) |
+| Run System CLI       | ![cli](https://via.placeholder.com/300x150?text=System+CLI)         |
+| Monitor System Stats | ![monitor](https://via.placeholder.com/300x150?text=System+Monitor) |
+| Web Browse with AI   | ![browse](https://via.placeholder.com/300x150?text=Browser+AI)      |
+
+---
+
+## 🈺 Localized Versions
+
+### 🇺🇸 English (Default)
+
+You are reading the English version.
+
+### 🇪🇸 Español (beta)
+
+**Alpha-Q: Constructor Inteligente de Aplicaciones**
+
+* Controla tu sistema usando lenguaje natural.
+* Crea y despliega apps completas con IA.
+* Visualiza y ajusta el frontend en vivo.
+* Automatización con GitHub, Supabase y más.
+
+*...más traducciones próximamente...*
 
 ---
 
@@ -185,4 +205,6 @@ MIT License — see `LICENSE` for full details.
 
 ## 🛠️ Support
 
-Please open an issue or reach out via GitHub Discussions.
+Please open an issue or start a GitHub Discussion for help.
+
+---

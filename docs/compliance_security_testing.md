@@ -18,18 +18,21 @@ This guide provides comprehensive documentation for compliance security testing 
 ## Compliance Frameworks
 
 ### ISO27001
+
 - Information Security Management System (ISMS)
 - 14 control categories
 - Risk-based approach
 - Regular audits and reviews
 
 ### SOC2
+
 - Trust Service Criteria
 - Security, Availability, Processing Integrity, Confidentiality, Privacy
 - Type I and Type II reports
 - Annual audits
 
 ### GDPR
+
 - Data Protection and Privacy
 - Data Subject Rights
 - Data Processing Requirements
@@ -37,12 +40,14 @@ This guide provides comprehensive documentation for compliance security testing 
 - Documentation Requirements
 
 ### HIPAA
+
 - Privacy Rule
 - Security Rule
 - Breach Notification
 - Administrative, Physical, and Technical Safeguards
 
 ### PCI DSS
+
 - Network Security
 - Data Protection
 - Access Control
@@ -52,6 +57,7 @@ This guide provides comprehensive documentation for compliance security testing 
 ## Testing Methodology
 
 ### 1. Control Testing
+
 ```python
 # Example: Testing ISO27001 controls
 def test_iso27001_compliance():
@@ -65,6 +71,7 @@ def test_iso27001_compliance():
 ```
 
 ### 2. Documentation Review
+
 ```python
 # Example: Testing compliance documentation
 def test_compliance_documentation():
@@ -78,6 +85,7 @@ def test_compliance_documentation():
 ```
 
 ### 3. Process Validation
+
 ```python
 # Example: Testing incident response process
 def test_compliance_incident_response():
@@ -93,6 +101,7 @@ def test_compliance_incident_response():
 ## Test Categories
 
 ### 1. Framework-Specific Tests
+
 - ISO27001 compliance tests
 - SOC2 trust principles tests
 - GDPR requirements tests
@@ -100,6 +109,7 @@ def test_compliance_incident_response():
 - PCI DSS validation tests
 
 ### 2. General Compliance Tests
+
 - Audit logging tests
 - Compliance reporting tests
 - Monitoring and alerting tests
@@ -114,6 +124,7 @@ def test_compliance_incident_response():
 ## Configuration Usage
 
 ### 1. Accessing Compliance Configuration
+
 ```python
 from tests.security.config import get_compliance_config
 
@@ -127,6 +138,7 @@ gdpr_config = compliance_config['gdpr']
 ```
 
 ### 2. Using Test Data
+
 ```python
 from tests.security.config import get_test_data
 
@@ -141,11 +153,13 @@ compliance_documents = test_data['compliance_documents']
 ## Running Tests
 
 ### 1. Running All Compliance Tests
+
 ```bash
 pytest tests/security/test_compliance_security.py -v
 ```
 
 ### 2. Running Specific Framework Tests
+
 ```bash
 # Run ISO27001 tests
 pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_iso27001_compliance -v
@@ -155,6 +169,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 ```
 
 ### 3. Test Reports
+
 - HTML reports: `pytest --html=reports/compliance_report.html`
 - XML reports: `pytest --junitxml=reports/compliance_report.xml`
 - Coverage reports: `pytest --cov=tests.security.test_compliance_security`
@@ -162,6 +177,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 ## Best Practices
 
 ### 1. Test Organization
+
 - Group tests by compliance framework
 - Use descriptive test names
 - Include comprehensive assertions
@@ -169,6 +185,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - Maintain test data separately
 
 ### 2. Security Considerations
+
 - Use secure test data
 - Encrypt sensitive information
 - Follow least privilege principle
@@ -176,6 +193,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - Maintain audit trails
 
 ### 3. Performance Optimization
+
 - Use test fixtures effectively
 - Implement parallel testing
 - Cache test results
@@ -183,6 +201,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - Use appropriate timeouts
 
 ### 4. Maintenance
+
 - Regular test updates
 - Framework version tracking
 - Documentation updates
@@ -192,6 +211,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 ## Tools and Resources
 
 ### 1. Testing Tools
+
 - pytest: Test framework
 - pytest-cov: Coverage reporting
 - pytest-html: HTML reports
@@ -199,6 +219,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - pytest-timeout: Timeout management
 
 ### 2. Security Tools
+
 - OWASP ZAP: Security scanning
 - Burp Suite: Security testing
 - SonarQube: Code quality
@@ -206,6 +227,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - Nessus: Vulnerability scanning
 
 ### 3. Documentation Resources
+
 - ISO27001 documentation
 - SOC2 trust criteria
 - GDPR guidelines
@@ -213,6 +235,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - PCI DSS standards
 
 ### 4. External References
+
 - [ISO27001 Official Site](https://www.iso.org/isoiec-27001-information-security.html)
 - [AICPA SOC2](https://www.aicpa.org/interestareas/frc/assuranceadvisoryservices/aicpasoc2report.html)
 - [GDPR Portal](https://gdpr.eu/)
@@ -222,6 +245,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 ## Troubleshooting
 
 ### 1. Common Issues
+
 - Test environment setup
 - Configuration problems
 - Access control issues
@@ -229,6 +253,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - Performance bottlenecks
 
 ### 2. Performance Problems
+
 - Test execution time
 - Resource utilization
 - Memory consumption
@@ -236,6 +261,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - Database performance
 
 ### 3. Configuration Issues
+
 - Missing settings
 - Invalid values
 - Access permissions
@@ -243,6 +269,7 @@ pytest tests/security/test_compliance_security.py::TestComplianceSecurity::test_
 - Dependencies
 
 ### 4. Support Resources
+
 - Internal documentation
 - Framework documentation
 - Security team
