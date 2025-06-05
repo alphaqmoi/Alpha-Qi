@@ -1,0 +1,20 @@
+
+# .github/workflows/supabase-deploy.yml
+name: Supabase Deploy
+
+on:
+  push:
+    paths:
+      - 'supabase/**'
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: 🌐 Deploy Supabase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install -g supabase
+      - run: supabase login --token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      - run: cd supabase && supabase db push
