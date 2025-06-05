@@ -16,7 +16,7 @@ on:
 
 jobs:
   test:
-    name: 🧪 Test ${{ matrix.service }}
+    name: 🧪 Lint, Build & Test ${{ matrix.service }}
     runs-on: ubuntu-latest
 
     strategy:
@@ -24,10 +24,11 @@ jobs:
       matrix:
         service: [frontend, backend, ai]
 
-    if: |
+    if: >
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'push' && (
+        contains(github.event.head_commit.message, matrix.service) ||
         contains(join(github.event.commits.*.added, ' '), matrix.service) ||
         contains(join(github.event.commits.*.removed, ' '), matrix.service) ||
         contains(join(github.event.commits.*.modified, ' '), matrix.service)
@@ -37,19 +38,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
+          cache: 'npm'  # Change to 'pnpm' or 'yarn' if you use those package managers
 
       - name: Install dependencies
         working-directory: ${{ matrix.service }}
         run: npm ci
 
+      - name: Lint code
+        working-directory: ${{ matrix.service }}
+        run: npm run lint
+        # Make sure your package.json scripts include "lint"
+
+      - name: Build project
+        working-directory: ${{ matrix.service }}
+        run: npm run build
+        # Make sure your package.json scripts include "build"
+
       - name: Run tests
         working-directory: ${{ matrix.service }}
         id: test
         run: npm test
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-logs-${{ matrix.service }}
+          path: ${{ matrix.service }}/test-results || ${{ matrix.service }}/logs || ${{ matrix.service }}/coverage || ${{ matrix.service }}/dist || ${{ matrix.service }}/build
+          # Adjust paths based on your actual test/log/artifact folders
 
       - name: Notify Slack on success
         if: success()
@@ -57,7 +77,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "✅ Tests passed for `${{ matrix.service }}`",
+              "text": "✅ Lint, build, and tests passed for `${{ matrix.service }}`",
               "attachments": [{ "color": "good" }]
             }
         env:
@@ -69,7 +89,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "🚨 Tests failed for `${{ matrix.service }}`",
+              "text": "🚨 Lint, build, or tests failed for `${{ matrix.service }}`",
               "attachments": [{ "color": "danger" }]
             }
         env:
@@ -83,11 +103,11 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "🚨 Tests failed for service: ${{ matrix.service }} in repo ${{ github.repository }}"
+          subject: "🚨 Lint/build/tests failed for service: ${{ matrix.service }} in repo ${{ github.repository }}"
           to: ${{ secrets.EMAIL_TO }}
           from: ${{ secrets.EMAIL_FROM }}
           body: |
-            The tests for service "${{ matrix.service }}" failed.
+            The lint/build/tests for service "${{ matrix.service }}" failed.
             Check the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Annotate PR on failure
@@ -96,16 +116,16 @@ jobs:
         with:
           script: |
             const service = "${{ matrix.service }}";
-            const message = `Tests failed for service **${service}**. Please check the workflow logs.`;
+            const message = `Lint/build/tests failed for service **${service}**. Please check the workflow logs.`;
             await github.checks.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              name: `Tests - ${service}`,
+              name: `CI - ${service}`,
               head_sha: context.payload.pull_request.head.sha,
               status: 'completed',
               conclusion: 'failure',
               output: {
-                title: `Test Failure: ${service}`,
+                title: `CI Failure: ${service}`,
                 summary: message
               }
             });
