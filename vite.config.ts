@@ -9,14 +9,22 @@ export default defineConfig(({ mode }) => {
   return {
     root: path.resolve(__dirname, "frontend"),
 
-    plugins: [react(), runtimeErrorOverlay()],
+    plugins: [
+      react(),
+      runtimeErrorOverlay()
+    ],
 
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "frontend"),
         "@shared": path.resolve(__dirname, "shared"),
-        "@assets": path.resolve(__dirname, "attached_assets"),
+        "@assets": path.resolve(__dirname, "attached_assets")
       },
+      extensions: [".js", ".ts", ".jsx", ".tsx", ".json"]
+    },
+
+    define: {
+      "process.env": env
     },
 
     server: {
@@ -24,26 +32,31 @@ export default defineConfig(({ mode }) => {
       host: true,
       strictPort: true,
       watch: {
-        usePolling: true,
-      },
+        usePolling: true
+      }
     },
 
     build: {
       outDir: path.resolve(__dirname, "server/public"),
-      emptyOutDir: true,
+      emptyOutDir: true
     },
 
     optimizeDeps: {
-      include: ["@/components/ui/use-toast"],
+      include: ["@/components/ui/use-toast"]
     },
 
     esbuild: {
       jsxInject: `import React from 'react'`,
-      // ✅ Add this to treat .js files as JSX
       loader: {
-        '.js': 'jsx',
-      },
-      include: /src\/.*\.js$/, // optional filter, or remove this line entirely
+        ".js": "jsx",
+        ".ts": "ts",
+        ".tsx": "tsx"
+      }
     },
+
+    // Optional SSR support for hybrid rendering
+    ssr: {
+      external: ["react", "react-dom"]
+    }
   };
 });
