@@ -15,6 +15,11 @@
   ],
   "settings": {
     "eslint.workingDirectories": ["frontend", "server", "shared"],
-    "typescript.tsdk": "node_modules/typescript/lib"
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "terminal.integrated.accessibleViewFocusOnCommandExecution": true,
+    "terminal.integrated.accessibleViewPreserveCursorPosition": true,
+    "terminal.integrated.allowMnemonics": true,
+    "terminal.integrated.enableVisualBell": true,
+    "terminal.integrated.enableImages": true
   }
 }
