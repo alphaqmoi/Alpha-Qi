@@ -8,6 +8,7 @@ on:
     branches: [main]
   schedule:
     - cron: '0 0 * * 0'  # Every Sunday
+  workflow_dispatch:
 
 jobs:
   analyze:
@@ -21,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ['javascript']  # Change to 'typescript' or add more if needed
+        language: ['javascript', 'typescript', 'python']  # Adjust based on your stack
 
     steps:
       - name: Checkout repository
