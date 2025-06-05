@@ -1,17 +1,18 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,                     // Enables project references
-    "module": "CommonJS",                  // For Node.js (or switch to "ESNext" for ESM support)
-    "target": "ES2022",                    // Good for modern Node.js (v18+)
-    "lib": ["ESNext"],                     // Includes latest JS/TS features
-    "moduleResolution": "node",           
-    "types": ["node"],                     // Adds Node.js global types
-    "sourceMap": true,                     
+    "target": "ES2022",
+    "module": "NodeNext",                // or "CommonJS" if not using ESM
+    "moduleResolution": "NodeNext",
+    "lib": ["ESNext"],
+    "outDir": "./dist/server",
+    "rootDir": "./server",
+    "types": ["node"],
     "esModuleInterop": true,
+    "strict": true,
     "skipLibCheck": true,
-    "strict": true,                        // Inherits and reinforces strict typing
-    "outDir": "dist/server"                // Recommended for separation of compiled code
+    "sourceMap": true,
+    "composite": true
   },
   "include": ["server/**/*", "shared/**/*"],
   "exclude": ["**/*.test.ts", "**/*.spec.ts"]
