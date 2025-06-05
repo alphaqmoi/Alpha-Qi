@@ -1,27 +1,127 @@
-
 # .github/workflows/docker.yml
 name: Docker Build & Push
 
 on:
   push:
-    branches: [main]
+    branches: [main, '**']
+    tags:
+      - 'v*'         # Matches version tags like v1.0.0
+      - 'v*-rc*'     # Matches prerelease tags like v1.0.0-rc1
   workflow_dispatch:
 
 jobs:
   build:
-    name: 🚧 Docker Build
+    name: 🚧 Build, Scan & Push Multi-Arch Docker Image
     runs-on: ubuntu-latest
+
+    env:
+      DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/alpha-qi
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch build)
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
       - name: Log in to DockerHub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push image
+      - name: Extract info
+        id: vars
+        run: |
+          echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+          echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Determine tags
+        id: tags
+        run: |
+          TAGS="${DOCKER_IMAGE}:${SHORT_SHA} ${DOCKER_IMAGE}:${BRANCH_NAME}"
+
+          # If this is a tag push, add the tag name as image tag
+          if [[ -n "$TAG_NAME" ]]; then
+            TAGS="$TAGS ${DOCKER_IMAGE}:${TAG_NAME}"
+          fi
+
+          # If on main branch, add latest tag
+          if [[ "$BRANCH_NAME" == "main" ]]; then
+            TAGS="$TAGS ${DOCKER_IMAGE}:latest"
+          fi
+
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/alpha-qi:latest
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ steps.tags.outputs.tags }}
+
+      - name: Install Trivy for Docker image scanning
+        run: |
+          sudo apt-get update && sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.43.1_Linux-64bit.deb
+          sudo dpkg -i trivy_0.43.1_Linux-64bit.deb
+
+      - name: Scan Docker image with Trivy
+        run: |
+          for tag in ${{ steps.tags.outputs.tags }}; do
+            echo "Scanning $tag"
+            trivy image --exit-code 1 --severity HIGH,CRITICAL "$tag"
+          done
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": "Docker build and push succeeded for `${{ env.DOCKER_IMAGE }}` on branch `${{ env.BRANCH_NAME }}`.",
+              "attachments": [
+                {
+                  "color": "good",
+                  "fields": [
+                    {
+                      "title": "Tags",
+                      "value": "${{ steps.tags.outputs.tags }}",
+                      "short": false
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":x: Docker build or scan failed for `${{ env.DOCKER_IMAGE }}` on branch `${{ env.BRANCH_NAME }}`.",
+              "attachments": [
+                {
+                  "color": "danger",
+                  "fields": [
+                    {
+                      "title": "Tags",
+                      "value": "${{ steps.tags.outputs.tags }}",
+                      "short": false
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
