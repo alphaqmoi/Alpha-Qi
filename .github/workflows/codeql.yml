@@ -1,18 +1,32 @@
-name: "CodeQL"
+name: "🔍 CodeQL Scan Matrix"
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai/**'
   pull_request:
     branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai/**'
   schedule:
-    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+    - cron: '0 0 * * 0'  # Weekly on Sunday
   workflow_dispatch:
 
 jobs:
-  analyze:
-    name: Analyze code with CodeQL
+  codeql:
+    name: CodeQL (${{ matrix.service }} | ${{ matrix.language }})
     runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, matrix.service) ||
+      github.event.pull_request.changed_files == null ||
+      github.event.pull_request.changed_files > 0
+
     permissions:
       actions: read
       contents: read
@@ -21,19 +35,109 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ['javascript', 'typescript', 'python']  # Adjust if needed
+        include:
+          - service: frontend
+            language: typescript
+            path: frontend/
+          - service: backend
+            language: python
+            path: backend/
+          - service: ai
+            language: python
+            path: ai/
 
     steps:
-      - name: Checkout repository
+      - name: 🧾 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
+      - name: 🧠 Setup Node.js (JS/TS only)
+        if: matrix.language == 'javascript' || matrix.language == 'typescript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🐍 Setup Python (Python only)
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Cache CodeQL Packs
+        uses: actions/cache@v4
+        with:
+          path: ~/.codeql/packages
+          key: ${{ runner.os }}-codeql-${{ matrix.language }}
+          restore-keys: |
+            ${{ runner.os }}-codeql-${{ matrix.language }}
+
+      - name: 🛠 Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+          config: |
+            paths:
+              - ${{ matrix.path }}
+            paths-ignore:
+              - '**/tests/**'
+              - '**/node_modules/**'
+              - '**/__pycache__/**'
 
-      - name: Autobuild
+      - name: 🔧 Autobuild
         uses: github/codeql-action/autobuild@v3
 
-      - name: Perform CodeQL Analysis
+      - name: 🧪 Analyze Code
         uses: github/codeql-action/analyze@v3
+        with:
+          category: ${{ matrix.service }}-${{ matrix.language }}
+
+      - name: 📤 Upload SARIF on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-${{ matrix.service }}-${{ matrix.language }}-sarif
+          path: codeql-results.sarif
+
+      - name: 🔔 Notify Slack (on failure)
+        if: failure()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🚨 CodeQL scan failed for *${{ matrix.service }} (${{ matrix.language }})* in *${{ github.repository }}* on branch *${{ github.ref_name }}*.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: 📣 Notify Teams (on failure)
+        if: failure()
+        uses: aliencube/microsoft-teams-action@v1
+        with:
+          webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          message: |
+            🚨 *CodeQL Scan Failed*
+            **Repo**: ${{ github.repository }}
+            **Service**: ${{ matrix.service }}
+            **Lang**: ${{ matrix.language }}
+            [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+  notify-on-failure:
+    if: failure()
+    needs: codeql
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📧 Send failure email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.example.com
+          server_port: 465
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "[CodeQL Failure] ${{ github.repository }} (${{ github.ref_name }})"
+          body: |
+            The CodeQL scan has failed.
+            Repo: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          to: you@example.com
+          from: codeql-bot@example.com
