@@ -3,10 +3,11 @@
 
 echo "🚀 Running frontend pre-push checks..."
 
-# Bash attempt
+# First, try using Bash (UNIX-like systems or Git Bash on Windows)
 bash -c '
   echo "🔍 Running frontend type check..."
-  cd frontend && pnpm tsc --noEmit || exit 1
+  cd frontend || exit 1
+  pnpm tsc --noEmit || exit 1
 
   echo "🧹 Running frontend lint check..."
   pnpm eslint --ext .ts,.tsx . || exit 1
@@ -14,6 +15,7 @@ bash -c '
   echo "🧪 Running frontend tests..."
   pnpm test || exit 1
 ' || {
+  # Bash failed — fall back to PowerShell on Windows
   if [ "$OS" = "Windows_NT" ]; then
     echo "⚠️ Bash failed, falling back to PowerShell..."
 
