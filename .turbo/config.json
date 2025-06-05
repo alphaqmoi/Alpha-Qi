@@ -1,7 +1,0 @@
-{
-  "pipeline": {
-    "build": {},
-    "test": {},
-    "lint": {}
-  }
-}
