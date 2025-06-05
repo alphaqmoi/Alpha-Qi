@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⎔ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: 📦 Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: 📥 Install dependencies (create pnpm-lock.yaml if missing)
+        run: |
+          echo "Installing dependencies..."
+          pnpm install
+
+      - name: ✅ Typecheck all projects
+        run: bash scripts/typecheck-all.sh
+
+      - name: 🧹 Lint all projects
+        run: pnpm eslint . --ext .ts,.tsx
+
+      - name: 🎨 Format check
+        run: pnpm prettier --check .
+
+      - name: 🧪 Run frontend tests
+        run: |
+          cd frontend
+          pnpm test
