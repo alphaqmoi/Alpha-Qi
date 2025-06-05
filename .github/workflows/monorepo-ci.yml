@@ -1,0 +1,143 @@
+name: Monorepo CI
+
+on:
+  push:
+    branches: [main, '**']
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai/**'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 🚀 ${{ matrix.service }} CI
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: frontend
+            node_version: 20
+          - service: backend
+            node_version: 18
+          - service: ai
+            node_version: 20
+
+    steps:
+      - name: 🧾 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js and cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+          cache: 'pnpm'
+          cache-dependency-path: ${{ matrix.service }}/pnpm-lock.yaml
+
+      - name: 📦 Install pnpm
+        run: npm install -g pnpm
+
+      - name: 💾 Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', matrix.service)) }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: 📥 Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: ⚡ Check if turbo is available
+        id: turbo_check
+        run: |
+          if pnpm exec turbo --version > /dev/null 2>&1; then
+            echo "has_turbo=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_turbo=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🧹 Lint
+        working-directory: ${{ matrix.service }}
+        run: |
+          if [ "${{ steps.turbo_check.outputs.has_turbo }}" == "true" ]; then
+            pnpm exec turbo run lint --filter=./
+          else
+            pnpm run lint
+          fi
+
+      - name: 🏗️ Build
+        working-directory: ${{ matrix.service }}
+        run: |
+          if [ "${{ steps.turbo_check.outputs.has_turbo }}" == "true" ]; then
+            pnpm exec turbo run build --filter=./
+          else
+            pnpm run build
+          fi
+
+      - name: 🧪 Test with Coverage
+        working-directory: ${{ matrix.service }}
+        run: |
+          if [ "${{ steps.turbo_check.outputs.has_turbo }}" == "true" ]; then
+            pnpm exec turbo run test --filter=./
+          else
+            pnpm run test
+          fi
+
+      - name: 📈 Upload coverage to Codecov
+        if: success()
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ matrix.service }}/coverage/lcov.info
+          flags: ${{ matrix.service }}
+          name: ${{ matrix.service }}-coverage
+          fail_ci_if_error: true
+
+      - name: 📤 Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: logs-${{ matrix.service }}
+          path: |
+            ${{ matrix.service }}/logs
+            ${{ matrix.service }}/test-results
+            ${{ matrix.service }}/coverage
+
+      - name: 📢 Slack failure alert
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": "🚨 CI failure in *${{ matrix.service }}*",
+              "attachments": [{ "color": "danger" }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: 📝 Annotate PR failure
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: `CI - ${{ matrix.service }}`,
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'failure',
+              output: {
+                title: `CI Failure: ${{ matrix.service }}`,
+                summary: "Build or tests failed. See logs for details."
+              }
+            });
