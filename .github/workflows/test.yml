@@ -1,0 +1,111 @@
+name: Test Matrix
+
+on:
+  push:
+    branches: [main, '**']
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai/**'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 🧪 Test ${{ matrix.service }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [frontend, backend, ai]
+
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push' && (
+        contains(join(github.event.commits.*.added, ' '), matrix.service) ||
+        contains(join(github.event.commits.*.removed, ' '), matrix.service) ||
+        contains(join(github.event.commits.*.modified, ' '), matrix.service)
+      )
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ${{ matrix.service }}
+        id: test
+        run: npm test
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": "✅ Tests passed for `${{ matrix.service }}`",
+              "attachments": [{ "color": "good" }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": "🚨 Tests failed for `${{ matrix.service }}`",
+              "attachments": [{ "color": "danger" }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "🚨 Tests failed for service: ${{ matrix.service }} in repo ${{ github.repository }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: ${{ secrets.EMAIL_FROM }}
+          body: |
+            The tests for service "${{ matrix.service }}" failed.
+            Check the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Annotate PR on failure
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const service = "${{ matrix.service }}";
+            const message = `Tests failed for service **${service}**. Please check the workflow logs.`;
+            await github.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: `Tests - ${service}`,
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'failure',
+              output: {
+                title: `Test Failure: ${service}`,
+                summary: message
+              }
+            });
