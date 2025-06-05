@@ -1,11 +1,11 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./frontend/tsconfig.json",
   "compilerOptions": {
     "module": "ESNext",
     "target": "ES2022",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "moduleResolution": "bundler",
+    "moduleResolution": "Bundler",
     "types": ["vite/client", "node"],
     "sourceMap": true,
     "esModuleInterop": true,
