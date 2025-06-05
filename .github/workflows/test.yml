@@ -22,7 +22,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [frontend, backend, ai]
+        # Define services with specific Node.js versions or env variables here
+        include:
+          - service: frontend
+            node_version: 20
+            env_vars: FRONTEND=true
+            sub_packages: ["app", "lib"] # example if you want to parallelize subpackages
+          - service: backend
+            node_version: 18
+            env_vars: BACKEND=true
+            sub_packages: ["api", "worker"]
+          - service: ai
+            node_version: 20
+            env_vars: AI=true
+            sub_packages: ["core"]
 
     if: >
       github.event_name == 'workflow_dispatch' ||
@@ -41,35 +54,85 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'  # Change to 'pnpm' or 'yarn' if you use those package managers
+          node-version: ${{ matrix.node_version }}
+          cache: 'none'  # We'll do explicit caching
 
-      - name: Install dependencies
-        working-directory: ${{ matrix.service }}
-        run: npm ci
+      - name: Cache node_modules for current service
+        uses: actions/cache@v3
+        id: cache-node-modules
+        with:
+          path: ${{ matrix.service }}/node_modules
+          key: ${{ matrix.service }}-node-modules-${{ hashFiles(matrix.service + '/package-lock.json') }}
+          restore-keys: |
+            ${{ matrix.service }}-node-modules-
 
-      - name: Lint code
-        working-directory: ${{ matrix.service }}
-        run: npm run lint
-        # Make sure your package.json scripts include "lint"
+      - name: Cache npm cache (optional, speeds up installs)
+        uses: actions/cache@v3
+        id: cache-npm
+        with:
+          path: ~/.npm
+          key: npm-cache-${{ matrix.node_version }}-${{ hashFiles(matrix.service + '/package-lock.json') }}
+          restore-keys: |
+            npm-cache-${{ matrix.node_version }}-
 
-      - name: Build project
+      - name: Install dependencies (prefer offline)
         working-directory: ${{ matrix.service }}
-        run: npm run build
-        # Make sure your package.json scripts include "build"
+        run: npm ci --prefer-offline
+        env:
+          # Pass service-specific env vars here if needed
+          ${{ fromJson(matrix.env_vars) }}
 
-      - name: Run tests
+      # If you want to run lint/build/test per sub-package in parallel inside a service job,
+      # you can do this using a job-level matrix and a strategy:
+      - name: Run Lint, Build, Test in parallel for sub-packages
+        run: |
+          echo "Running lint/build/test for all sub-packages of ${{ matrix.service }}..."
+        # You can replace above with actual parallel execution logic, e.g., with `npm run lint` per sub-package,
+        # Or use a composite action or a matrix job for sub-packages.
+        # For now, run sequentially for simplicity:
+
+      - name: Lint all sub-packages
         working-directory: ${{ matrix.service }}
-        id: test
-        run: npm test
+        run: |
+          for pkg in ${{ join(matrix.sub_packages, ' ') }}; do
+            echo "Linting $pkg..."
+            npm --prefix $pkg run lint
+          done
+
+      - name: Build all sub-packages
+        working-directory: ${{ matrix.service }}
+        run: |
+          for pkg in ${{ join(matrix.sub_packages, ' ') }}; do
+            echo "Building $pkg..."
+            npm --prefix $pkg run build
+          done
+
+      - name: Test all sub-packages
+        working-directory: ${{ matrix.service }}
+        run: |
+          for pkg in ${{ join(matrix.sub_packages, ' ') }}; do
+            echo "Testing $pkg..."
+            npm --prefix $pkg test
+          done
+
+      - name: Upload code coverage artifact
+        if: success() && (exists('${{ matrix.service }}/coverage') || exists('${{ matrix.service }}/coverage/lcov.info'))
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-${{ matrix.service }}
+          path: ${{ matrix.service }}/coverage
 
       - name: Upload test logs on failure
         if: failure()
         uses: actions/upload-artifact@v3
         with:
           name: test-logs-${{ matrix.service }}
-          path: ${{ matrix.service }}/test-results || ${{ matrix.service }}/logs || ${{ matrix.service }}/coverage || ${{ matrix.service }}/dist || ${{ matrix.service }}/build
-          # Adjust paths based on your actual test/log/artifact folders
+          path: |
+            ${{ matrix.service }}/test-results
+            ${{ matrix.service }}/logs
+            ${{ matrix.service }}/coverage
+            ${{ matrix.service }}/dist
+            ${{ matrix.service }}/build
 
       - name: Notify Slack on success
         if: success()
