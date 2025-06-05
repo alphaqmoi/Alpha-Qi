@@ -1,24 +1,52 @@
 {
   "compilerOptions": {
+    /* Language and Module Settings */
     "target": "ES2022",
     "module": "ESNext",
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "moduleResolution": "Node",
+    "moduleDetection": "force",
+    "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
+
+    /* Interop and Compatibility */
     "esModuleInterop": true,
-    "skipLibCheck": true,
     "allowJs": true,
     "checkJs": false,
+    "isolatedModules": true,
+
+    /* Type Checking */
     "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
+    "skipLibCheck": true,
+
+    /* Build Behavior */
     "incremental": true,
+    "noEmit": true,
+    "composite": false, // each referenced project will set composite: true
+
+    /* Path Aliases */
     "baseUrl": ".",
     "paths": {
       "@/*": ["frontend/*"],
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["shared/*"],
+      "@shared": ["shared/index.ts"],
+      "@assets/*": ["attached_assets/*"]
     },
+
+    /* Custom Types */
     "typeRoots": ["./node_modules/@types", "./types"]
   },
-  "exclude": ["node_modules", "dist", "build"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__mocks__",
+    "**/__tests__"
+  ]
 }
