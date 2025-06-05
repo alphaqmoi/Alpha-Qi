@@ -1,27 +1,52 @@
-# .github/workflows/docker.yml
-name: Docker Build & Push
+name: Docker Build & Push Matrix
 
 on:
   push:
     branches: [main, '**']
     tags:
-      - 'v*'         # Matches version tags like v1.0.0
-      - 'v*-rc*'     # Matches prerelease tags like v1.0.0-rc1
+      - 'v*'         # version tags like v1.0.0
+      - 'v*-rc*'     # prerelease tags like v1.0.0-rc1
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai/**'
   workflow_dispatch:
 
 jobs:
   build:
-    name: 🚧 Build, Scan & Push Multi-Arch Docker Image
+    name: 🚧 Build, Scan & Push Docker Image (${{ matrix.service }})
     runs-on: ubuntu-latest
 
     env:
-      DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/alpha-qi
+      DOCKER_IMAGE_BASE: ${{ secrets.DOCKER_USERNAME }}/alpha-qi
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: frontend
+            context: frontend/
+          - service: backend
+            context: backend/
+          - service: ai
+            context: ai/
+
+    # Only run if files in service path changed or if triggered manually or tag push
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' && (
+        startsWith(github.ref, 'refs/tags/') || 
+        contains(github.event.head_commit.message, matrix.service) || 
+        github.event.commits.*.modified.* contains matrix.context || 
+        github.event.commits.*.added.* contains matrix.context ||
+        github.event.commits.*.removed.* contains matrix.context
+      )
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (for multi-arch build)
+      - name: Set up QEMU (multi-arch)
         uses: docker/setup-qemu-action@v2
 
       - name: Set up Docker Buildx
@@ -40,19 +65,19 @@ jobs:
           echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
           echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
 
-      - name: Determine tags
+      - name: Determine image tags
         id: tags
         run: |
-          TAGS="${DOCKER_IMAGE}:${SHORT_SHA} ${DOCKER_IMAGE}:${BRANCH_NAME}"
+          TAGS="${DOCKER_IMAGE_BASE}-${{ matrix.service }}:${SHORT_SHA} ${DOCKER_IMAGE_BASE}-${{ matrix.service }}:${BRANCH_NAME}"
 
           # If this is a tag push, add the tag name as image tag
           if [[ -n "$TAG_NAME" ]]; then
-            TAGS="$TAGS ${DOCKER_IMAGE}:${TAG_NAME}"
+            TAGS="$TAGS ${DOCKER_IMAGE_BASE}-${{ matrix.service }}:${TAG_NAME}"
           fi
 
           # If on main branch, add latest tag
           if [[ "$BRANCH_NAME" == "main" ]]; then
-            TAGS="$TAGS ${DOCKER_IMAGE}:latest"
+            TAGS="$TAGS ${DOCKER_IMAGE_BASE}-${{ matrix.service }}:latest"
           fi
 
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
@@ -60,7 +85,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ${{ matrix.context }}
           push: true
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
@@ -73,7 +98,7 @@ jobs:
           wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.43.1_Linux-64bit.deb
           sudo dpkg -i trivy_0.43.1_Linux-64bit.deb
 
-      - name: Scan Docker image with Trivy
+      - name: Scan Docker images with Trivy
         run: |
           for tag in ${{ steps.tags.outputs.tags }}; do
             echo "Scanning $tag"
@@ -86,7 +111,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "Docker build and push succeeded for `${{ env.DOCKER_IMAGE }}` on branch `${{ env.BRANCH_NAME }}`.",
+              "text": "✅ Docker build & push succeeded for `${{ env.DOCKER_IMAGE_BASE }}-${{ matrix.service }}` on branch `${{ env.BRANCH_NAME }}`.",
               "attachments": [
                 {
                   "color": "good",
@@ -109,7 +134,7 @@ jobs:
         with:
           payload: |
             {
-              "text": ":x: Docker build or scan failed for `${{ env.DOCKER_IMAGE }}` on branch `${{ env.BRANCH_NAME }}`.",
+              "text": "🚨 Docker build or scan failed for `${{ env.DOCKER_IMAGE_BASE }}-${{ matrix.service }}` on branch `${{ env.BRANCH_NAME }}`.",
               "attachments": [
                 {
                   "color": "danger",
