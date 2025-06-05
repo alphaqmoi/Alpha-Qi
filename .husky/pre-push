@@ -1,0 +1,11 @@
+#!/bin/bash
+echo "🔍 Running typecheck-all (cross-platform)..."
+
+if command -v pwsh &>/dev/null; then
+  pwsh scripts/typecheck-all.ps1
+elif command -v powershell &>/dev/null; then
+  powershell -ExecutionPolicy Bypass -File scripts/typecheck-all.ps1
+else
+  echo "❌ PowerShell not found. Skipping typecheck."
+  exit 1
+fi
