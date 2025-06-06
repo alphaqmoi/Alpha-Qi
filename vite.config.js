@@ -1,4 +1,3 @@
-// vite.config.js
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -28,6 +27,9 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       strictPort: true,
       host: true,
+      allowedHosts: [
+        "3000-alphaqmoi-alphaqi-aoc8jcp0t5r.ws-eu120.gitpod.io"
+      ],
     },
     build: {
       outDir: path.resolve(__dirname, "server", "public"),
