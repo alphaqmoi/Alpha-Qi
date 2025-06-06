@@ -6,6 +6,26 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
 
+  const gitpodUrl = process.env.GITPOD_WORKSPACE_URL;
+  const allowedHosts: string[] = [];
+
+  if (gitpodUrl) {
+    try {
+      const url = new URL(gitpodUrl);
+      const baseHost = url.hostname;
+
+      // Add common dev ports used in Gitpod/Vite
+      const ports = [3000, 5173, 4173, 4321, 8080]; // You can add more here if needed
+
+      ports.forEach(port => {
+        allowedHosts.push(`${port}-${baseHost}`);
+      });
+
+    } catch (err) {
+      console.warn("Invalid GITPOD_WORKSPACE_URL:", gitpodUrl);
+    }
+  }
+
   return {
     root: path.resolve(__dirname, "frontend"),
 
@@ -33,7 +53,8 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       watch: {
         usePolling: true
-      }
+      },
+      allowedHosts
     },
 
     build: {
@@ -54,7 +75,6 @@ export default defineConfig(({ mode }) => {
       }
     },
 
-    // Optional SSR support for hybrid rendering
     ssr: {
       external: ["react", "react-dom"]
     }
